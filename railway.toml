@@ -1,0 +1,6 @@
+[build]
+builder = "DOCKERFILE"
+
+[deploy]
+strategy = "ROLLING"
+healthcheck_path = "/health"
