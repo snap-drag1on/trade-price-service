@@ -13,12 +13,11 @@ from app.currency import convert_to_usd
 from app.landed_cost import calculate_landed_cost
 from app.cache import compute_query_hash, check_cache, write_cache
 from app.supabase_client import get_service_client, get_supabase
+from app.task_store import save_task, get_task, update_task, count_active_tasks
 from app.log import get_logger
 
 logger = get_logger("api")
 router = APIRouter(prefix="/api/v1", tags=["main"])
-
-TASK_STORE: dict[str, dict] = {}
 
 UI_PHASE_MAP = {
     "router": {"label": "router", "order": 0},
@@ -33,13 +32,9 @@ UI_PHASE_MAP = {
 
 def _progress_callback(task_id: str):
     def callback(phase: str, data: dict):
-        if task_id not in TASK_STORE:
-            return
         ui_label = UI_PHASE_MAP.get(phase, {}).get("label", phase)
-        TASK_STORE[task_id].setdefault("phases", {})
-        TASK_STORE[task_id]["phases"][phase] = data
-        TASK_STORE[task_id]["phases"][phase]["ui_label"] = ui_label
-        TASK_STORE[task_id]["timestamp"] = datetime.now()
+        phase_data = {**data, "ui_label": ui_label}
+        update_task(task_id, {"phases": {phase: phase_data}})
     return callback
 
 
@@ -49,6 +44,12 @@ async def create_query(
     background_tasks: BackgroundTasks,
 ) -> QueryResponse:
     task_id = str(uuid.uuid4())
+
+    await save_task(task_id, {
+        "status": "processing",
+        "flow": "",
+        "phases": {},
+    })
 
     background_tasks.add_task(
         _process_query_background,
@@ -69,10 +70,9 @@ async def create_query(
 
 @router.get("/query/{task_id}", response_model=QueryResponse)
 async def get_query_status(task_id: str) -> QueryResponse:
-    if task_id not in TASK_STORE:
+    task_data = await get_task(task_id)
+    if task_data is None:
         raise HTTPException(status_code=404, detail="Task not found")
-
-    task_data = TASK_STORE[task_id]
 
     return QueryResponse(
         success=not task_data.get("error"),
@@ -82,7 +82,7 @@ async def get_query_status(task_id: str) -> QueryResponse:
         phases=task_data.get("phases"),
         result=task_data.get("result"),
         error=task_data.get("error"),
-        timestamp=task_data.get("timestamp", datetime.now()),
+        timestamp=datetime.now(),
     )
 
 
@@ -94,24 +94,15 @@ async def _process_query_background(
     use_cache: bool,
 ):
     try:
-        TASK_STORE[task_id] = {
-            "status": "processing",
-            "flow": "trade_check",
-            "phases": {},
-            "timestamp": datetime.now(),
-        }
-
         if use_cache:
             query_hash = compute_query_hash(product, None, destination)
             cached = await check_cache(query_hash)
             if cached:
-                TASK_STORE[task_id] = {
+                await update_task(task_id, {
                     "status": "completed",
                     "flow": "trade_check",
                     "result": {"source": "cache", "data": cached},
-                    "phases": {},
-                    "timestamp": datetime.now(),
-                }
+                })
                 logger.info("Cache HIT for %s", task_id)
                 return
 
@@ -119,32 +110,26 @@ async def _process_query_background(
         result = await run_agent(product, max_tool_rounds=10, progress_callback=callback)
 
         if isinstance(result, dict):
-            TASK_STORE[task_id] = {
+            await update_task(task_id, {
                 "status": "completed",
                 "flow": result.get("intent") or result.get("flow", "trade_check"),
                 "result": result,
-                "phases": TASK_STORE[task_id].get("phases", {}),
-                "timestamp": datetime.now(),
-            }
+            })
         else:
-            TASK_STORE[task_id] = {
+            await update_task(task_id, {
                 "status": "completed",
                 "flow": "trade_check",
                 "result": {"answer": str(result)},
-                "phases": TASK_STORE[task_id].get("phases", {}),
-                "timestamp": datetime.now(),
-            }
+            })
 
         logger.info("Query completed: %s", task_id)
 
     except Exception as e:
-        TASK_STORE[task_id] = {
-            "status": "error",
-            "error": str(e),
-            "phases": TASK_STORE[task_id].get("phases", {}),
-            "timestamp": datetime.now(),
-        }
         logger.error("Query failed %s: %s", task_id, e)
+        try:
+            await update_task(task_id, {"status": "error", "error": str(e)})
+        except Exception:
+            pass
 
 
 @router.post("/price-check", response_model=PriceCheckResponse)
@@ -237,13 +222,12 @@ async def compare_offers(req: ComparisonRequest) -> ComparisonResponse:
 
 @router.get("/health")
 async def health_check():
+    active = await count_active_tasks()
     return {
         "status": "ok",
         "service": "Trade Price Service",
         "timestamp": datetime.now(),
-        "tasks_active": len(
-            [t for t in TASK_STORE.values() if t.get("status") == "processing"]
-        ),
+        "tasks_active": active,
     }
 
 
