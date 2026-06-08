@@ -48,11 +48,14 @@ async def create_query(
 ) -> QueryResponse:
     task_id = str(uuid.uuid4())
 
-    await save_task(task_id, {
-        "status": "processing",
-        "flow": "",
-        "phases": {},
-    })
+    try:
+        await save_task(task_id, {
+            "status": "processing",
+            "flow": "",
+            "phases": {},
+        })
+    except Exception as e:
+        logger.error("Failed to save task %s: %s", task_id, e)
 
     background_tasks.add_task(
         _process_query_background,
@@ -225,7 +228,11 @@ async def compare_offers(req: ComparisonRequest) -> ComparisonResponse:
 
 @router.get("/health")
 async def health_check():
-    active = await count_active_tasks()
+    active = 0
+    try:
+        active = await count_active_tasks()
+    except Exception as e:
+        logger.warning("Health check error: %s", e)
     return {
         "status": "ok",
         "service": "Trade Price Service",

@@ -36,8 +36,11 @@ def get_service_client():
         logger.warning("supabase_service_key not set")
         return None
 
-    from supabase import create_client
-
-    _client_service = create_client(settings.supabase_url, settings.supabase_service_key)
-    logger.info("Supabase service client created")
+    try:
+        from supabase import create_client
+        _client_service = create_client(settings.supabase_url, settings.supabase_service_key)
+        logger.info("Supabase service client created")
+    except Exception as e:
+        logger.error("Failed to create Supabase service client: %s", e)
+        return None
     return _client_service
