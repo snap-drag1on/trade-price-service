@@ -40,14 +40,17 @@ export function ChatView() {
   const [showHistory, setShowHistory] = useState(false);
   const msgEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     msgEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, phases]);
 
   const handleSend = (text: string) => {
-    if (!text.trim() || loading) return;
-    sendMessage(text.trim(), language);
+    if (!text.trim() || loading || sendingRef.current) return;
+    sendingRef.current = true;
+    const p = sendMessage(text.trim(), language);
+    p.finally(() => { sendingRef.current = false; });
     setHistory([{ id: Date.now().toString(), preview: text.trim().slice(0, 40), time: new Date().toISOString() }, ...history.filter(h => h.preview !== text.trim().slice(0, 40)).slice(0, 49)]);
   };
 

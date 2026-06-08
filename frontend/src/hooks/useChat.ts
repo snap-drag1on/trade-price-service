@@ -74,7 +74,11 @@ export function useChat() {
 
       return result;
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Xatolik yuz berdi";
+      let errorMsg = "Xatolik yuz berdi";
+      if (err instanceof Error) {
+        if (err.message.includes("404")) errorMsg = "Serverda xatolik, qaytadan urinib ko'ring";
+        else errorMsg = err.message;
+      }
       const assistantMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
