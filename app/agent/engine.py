@@ -255,7 +255,7 @@ async def _run_parallel_services(product: str, origin: str = "CN") -> tuple[dict
 
     done, _ = await asyncio.wait(
         {market_task, logistics_task, trade_task},
-        timeout=25,
+        timeout=45,
     )
     results = [{} for _ in range(3)]
     task_list = [market_task, logistics_task, trade_task]
@@ -525,6 +525,23 @@ async def _find_hs_code(product: str) -> Optional[str]:
         "camera": "852589", "dash camera": "852589",
         "blanket": "630110", "towel": "630260",
         "toy": "950300", "drone": "852581",
+        "tobacco": "240399", "sigareta": "240220", "cigarette": "240220", "tamaki": "240399", "stick": "240399", "heated": "240399",
+        "shoes": "640399", "poyabzal": "640399", "sandal": "640419",
+        "clothing": "620462", "kiyim": "620462", "textile": "620462", "to'qima": "620462",
+        "cosmetic": "330499", "kosmetika": "330499", "perfume": "330300", "attar": "330300",
+        "rice": "100630", "guruch": "100630", "wheat": "100199", "bug'doy": "100199",
+        "oil": "151219", "yog'": "151219", "sunflower": "151219",
+        "meat": "020230", "go'sht": "020230", "gosht": "020230", "beef": "020230",
+        "apple": "080810", "olma": "080810",
+        "tea": "090210", "choy": "090210",
+        "coffee": "090111", "qahva": "090111",
+        "furniture": "940360", "mebel": "940360", "stul": "940179", "chair": "940179",
+        "medicine": "300490", "dori": "300490", "drug": "300490", "pharma": "300490",
+        "plastic": "392690",
+        "paper": "481910", "karton": "481910", "box": "481910",
+        "glass": "701090",
+        "steel": "721049", "metal": "721049", "iron": "721049", "temir": "721049",
+        "gold": "710813", "tilla": "710813", "oltin": "710813",
     }
 
     lower = product.lower()

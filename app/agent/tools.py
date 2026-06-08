@@ -639,38 +639,49 @@ async def calculate_landed(
         return ToolResult(success=False, error=str(exc))
 
 
+_COUNTRY_ALIASES = {
+    "china": "CN", "xitoy": "CN", "chinese": "CN", "prc": "CN",
+    "turkey": "TR", "turkiya": "TR", "turkish": "TR",
+    "korea": "KR", "koreya": "KR", "south korea": "KR",
+    "india": "IN", "hindiston": "IN",
+    "japan": "JP", "yaponiya": "JP",
+    "vietnam": "VN", "vetnam": "VN",
+    "thailand": "TH", "tailand": "TH",
+    "indonesia": "ID",
+    "malaysia": "MY",
+    "singapore": "SG",
+    "philippines": "PH",
+    "pakistan": "PK",
+    "bangladesh": "BD",
+    "uae": "AE", "dubai": "AE", "birlashgan arab amirliklari": "AE",
+    "saudi arabia": "SA", "saudiya": "SA",
+    "qatar": "QA",
+    "kuwait": "KW", "quvayt": "KW",
+    "oman": "OM",
+    "bahrain": "BH",
+    "israel": "IL",
+    "jordan": "JO", "iordaniya": "JO",
+    "lebanon": "LB", "livan": "LB",
+    "taiwan": "TW",
+    "hong kong": "HK",
+    "sri lanka": "LK",
+    "nepal": "NP",
+    "myanmar": "MM",
+    "cambodia": "KH",
+}
+
+
+def _normalize_country(code_or_name: str) -> str:
+    raw = code_or_name.strip().lower()
+    if len(raw) == 2 and raw.isalpha():
+        return raw.upper()
+    return _COUNTRY_ALIASES.get(raw, raw.upper()[:2])
+
+
 async def get_freight_corridor(origin: str, destination: str, transport_mode: str = "rail") -> ToolResult:
-    origin = origin.upper()
+    origin = _normalize_country(origin)
     destination = destination.upper()
     transport_mode = transport_mode.lower()
-
-    supabase = get_service_client()
-    if supabase is None:
-        supabase = get_supabase()
-    if supabase is not None:
-        try:
-            data = supabase.table("freight_corridors") \
-                .select("*") \
-                .eq("origin_country_code", origin) \
-                .eq("destination_country_code", destination) \
-                .eq("transport_mode", transport_mode) \
-                .execute()
-            if data.data and len(data.data) > 0:
-                row = data.data[0]
-                return ToolResult(
-                    data={
-                        "origin": row.get("origin_country_code"),
-                        "destination": row.get("destination_country_code"),
-                        "transport_mode": row.get("transport_mode"),
-                        "transit_days_min": int(row.get("transit_days_min", 0)),
-                        "transit_days_max": int(row.get("transit_days_max", 0)),
-                        "cost_per_kg_usd": float(row.get("cost_per_kg_usd") or 0),
-                        "cost_per_container_usd": float(row.get("cost_per_container_usd") or 0),
-                        "cost_per_cbm_usd": float(row.get("cost_per_cbm_usd") or 0),
-                    }
-                )
-        except Exception as exc:
-            logger.debug("Supabase freight_corridors query failed: %s", exc)
 
     if destination != "UZ":
         return ToolResult(success=False, error=f"No freight corridor found for {origin} → {destination} by {transport_mode}")
@@ -1029,37 +1040,12 @@ async def search_uz_marketplaces(query: str, max_results: int = 3) -> ToolResult
 
 async def get_logistics_multi_route(origin: str, destination: str, weight_kg: float = 1) -> ToolResult:
     """Compare logistics routes (air, rail, road, sea) between origin and destination."""
-    origin = origin.upper()
+    origin = _normalize_country(origin)
     destination = destination.upper()
     modes = ["air", "rail", "road", "sea"]
     routes = []
 
-    supabase = get_service_client()
-    if supabase is None:
-        supabase = get_supabase()
-    if supabase is not None:
-        for mode in modes:
-            try:
-                data = supabase.table("freight_corridors") \
-                    .select("*") \
-                    .eq("origin_country_code", origin) \
-                    .eq("destination_country_code", destination) \
-                    .eq("transport_mode", mode) \
-                    .execute()
-                if data.data and len(data.data) > 0:
-                    row = data.data[0]
-                    cost_per_kg = float(row.get("cost_per_kg_usd") or 0)
-                    routes.append({
-                        "transport_mode": row.get("transport_mode"),
-                        "transit_days_min": int(row.get("transit_days_min", 0)),
-                        "transit_days_max": int(row.get("transit_days_max", 0)),
-                        "cost_per_kg_usd": cost_per_kg,
-                        "total_cost_usd": round(cost_per_kg * weight_kg, 2) if cost_per_kg > 0 else 0,
-                    })
-            except Exception as exc:
-                logger.debug("Freight corridor %s failed: %s", mode, exc)
-
-    if not routes and destination == "UZ":
+    if destination == "UZ":
         country_data = FREIGHT_RATES.get(origin)
         if country_data:
             for mode in modes:
