@@ -228,6 +228,7 @@ async def compare_offers(req: ComparisonRequest) -> ComparisonResponse:
 
 @router.get("/health")
 async def health_check():
+    from app.config import settings as _settings
     from app.supabase_client import get_service_client
     client = get_service_client()
     return {
@@ -235,8 +236,8 @@ async def health_check():
         "service": "Trade Price Service",
         "timestamp": datetime.now(),
         "supabase_connected": client is not None,
-        "supabase_url": settings.supabase_url[:20] + "..." if settings.supabase_url else None,
-        "has_service_key": bool(settings.supabase_service_key),
+        "supabase_url": _settings.supabase_url[:20] + "..." if _settings.supabase_url else None,
+        "has_service_key": bool(_settings.supabase_service_key),
     }
 
 
