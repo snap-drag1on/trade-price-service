@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import traceback
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -17,8 +18,7 @@ def _now_iso() -> str:
 async def save_task(task_id: str, data: dict) -> None:
     supabase = get_service_client()
     if supabase is None:
-        logger.warning("Supabase unavailable, task %s not saved", task_id)
-        return
+        raise RuntimeError("get_service_client() returned None — Supabase not configured")
     try:
         row = {
             "task_id": task_id,
@@ -28,16 +28,17 @@ async def save_task(task_id: str, data: dict) -> None:
             "result": data.get("result"),
             "error": data.get("error"),
         }
-        supabase.table("task_store").upsert(row).execute()
-        logger.info("Task %s saved (status=%s)", task_id[:12], row["status"])
+        r = supabase.table("task_store").upsert(row).execute()
+        logger.info("Task %s saved (status=%s) raw=%s", task_id[:12], row["status"], r)
     except Exception as e:
-        logger.warning("Failed to save task %s: %s", task_id, e)
+        tb = traceback.format_exc()
+        logger.error("Failed to save task %s: %s\n%s", task_id, e, tb)
+        raise
 
 
 async def get_task(task_id: str) -> Optional[dict]:
     supabase = get_service_client()
     if supabase is None:
-        logger.warning("Supabase unavailable for task %s", task_id)
         return None
     try:
         result = supabase.table("task_store").select("*").eq("task_id", task_id).limit(1).execute()
@@ -75,10 +76,9 @@ async def update_task(task_id: str, updates: dict) -> None:
         if "phases" in updates and isinstance(updates["phases"], dict):
             merged_phases.update(updates["phases"])
         update_data = {
-            "phases": merged_phases,
             "timestamp": _now_iso(),
         }
-        for key in ("status", "flow", "result", "error"):
+        for key in ("phases", "status", "flow", "result", "error"):
             if key in updates:
                 update_data[key] = updates[key]
         supabase.table("task_store").update(update_data).eq("task_id", task_id).execute()
