@@ -241,37 +241,19 @@ async def health_check():
             conn.close()
         except Exception:
             pass
-    sb_write = False
-    sb_read = False
-    sb_key_prefix = None
-    sb_write_status = None
-    sb_error = None
+    sb_task = False
     try:
-        key = settings.supabase_anon_key or settings.supabase_service_key
-        if key:
-            sb_key_prefix = f"{key[:10]}... (len={len(key)}, jwt={key.startswith('eyJ')})"
-            base = settings.supabase_url.rstrip("/")
-            headers = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-            r = httpx.post(f"{base}/rest/v1/task_store?on_conflict=task_id", headers=headers,
-                json={"task_id": "health-check", "status": "ok"}, timeout=5)
-            sb_write = r.status_code in (200, 201)
-            sb_write_status = r.status_code
-            if not sb_write:
-                sb_error = r.text[:200]
-            r = httpx.get(f"{base}/rest/v1/task_store?task_id=eq.health-check&select=task_id", headers=headers, timeout=5)
-            sb_read = r.status_code == 200 and len(r.json()) > 0
-    except Exception as e:
-        sb_error = str(e)[:200]
+        from app.task_store import _supabase_headers, _supabase_save, _supabase_get
+        await _supabase_save("hb", {"status": "ok"})
+        sb_task = await _supabase_get("hb") is not None
+    except Exception:
+        pass
     return {
         "status": "ok",
         "service": "Trade Price Service",
         "timestamp": datetime.now(),
         "supabase_connected": supabase is not None,
-        "supabase_task_store_write": sb_write,
-        "supabase_task_store_read": sb_read,
-        "supabase_task_store_key": sb_key_prefix,
-        "supabase_task_store_write_status": sb_write_status,
-        "supabase_task_store_error": sb_error,
+        "supabase_task_store": sb_task,
         "tasks": tasks,
     }
 
