@@ -65,11 +65,17 @@ def _supabase_headers() -> Optional[dict]:
         return None
 
 
+def _upsert_headers() -> dict:
+    h = _supabase_headers() or {}
+    h["Prefer"] = "return=representation,resolution=merge-duplicates"
+    return h
+
+
 async def _supabase_save(task_id: str, data: dict) -> None:
     import httpx
     try:
-        headers = _supabase_headers()
-        if headers is None:
+        headers = _upsert_headers()
+        if not headers.get("apikey"):
             return
         from app.config import settings
         base = settings.supabase_url.rstrip("/")
@@ -125,8 +131,8 @@ async def _supabase_get(task_id: str) -> Optional[dict]:
 async def _supabase_update(task_id: str, updates: dict) -> None:
     import httpx
     try:
-        headers = _supabase_headers()
-        if headers is None:
+        headers = _upsert_headers()
+        if not headers.get("apikey"):
             return
         current = await _supabase_get(task_id)
         if not current:
@@ -153,9 +159,9 @@ async def _supabase_update(task_id: str, updates: dict) -> None:
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.post(f"{url}?on_conflict=task_id", headers=headers, json=payload)
             if resp.status_code not in (200, 201):
-                logger.debug("Supabase update returned %d: %s", resp.status_code, resp.text[:100])
+                logger.info("Supabase update returned %d: %s", resp.status_code, resp.text[:200])
     except Exception as e:
-        logger.debug("Supabase task update failed: %s", e)
+        logger.info("Supabase task update failed: %s", e)
 
 
 async def save_task(task_id: str, data: dict) -> None:
