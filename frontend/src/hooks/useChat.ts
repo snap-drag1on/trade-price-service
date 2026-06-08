@@ -48,7 +48,7 @@ export function useChat() {
         product,
         language,
         destination: "UZ",
-        use_cache: true,
+        use_cache: false,
       });
       taskIdRef.current = task_id;
       setState((prev) => ({ ...prev, taskId: task_id }));
