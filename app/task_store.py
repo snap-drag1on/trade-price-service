@@ -48,12 +48,12 @@ def _supabase_headers() -> Optional[dict]:
     try:
         from app.config import settings
         key = settings.supabase_anon_key
-        if not key:
+        if not key or not key.startswith("eyJ"):
             key = settings.supabase_service_key
-        if not key:
-            logger.warning("No Supabase key configured for task persistence")
+        if not key or len(key) < 20:
+            logger.warning("No valid Supabase key configured for task persistence")
             return None
-        logger.info("Supabase task key prefix: %s... (len=%d)", key[:8], len(key))
+        logger.info("Supabase task key prefix: %s... (len=%d)", key[:10], len(key))
         return {
             "apikey": key,
             "Authorization": f"Bearer {key}",
@@ -72,7 +72,8 @@ async def _supabase_save(task_id: str, data: dict) -> None:
         if headers is None:
             return
         from app.config import settings
-        url = f"{settings.supabase_url}/rest/v1/task_store"
+        base = settings.supabase_url.rstrip("/")
+        url = f"{base}/rest/v1/task_store"
         payload = {
             "task_id": task_id,
             "status": data.get("status", "processing") or "processing",
@@ -97,7 +98,8 @@ async def _supabase_get(task_id: str) -> Optional[dict]:
         if headers is None:
             return None
         from app.config import settings
-        url = f"{settings.supabase_url}/rest/v1/task_store"
+        base = settings.supabase_url.rstrip("/")
+        url = f"{base}/rest/v1/task_store"
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.get(
                 f"{url}?task_id=eq.{task_id}&select=*",
@@ -130,7 +132,8 @@ async def _supabase_update(task_id: str, updates: dict) -> None:
         if not current:
             return
         from app.config import settings
-        url = f"{settings.supabase_url}/rest/v1/task_store"
+        base = settings.supabase_url.rstrip("/")
+        url = f"{base}/rest/v1/task_store"
         phases = dict(current.get("phases", {}))
         if "phases" in updates and isinstance(updates["phases"], dict):
             phases.update(updates["phases"])
