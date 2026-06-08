@@ -225,8 +225,9 @@ async def compare_offers(req: ComparisonRequest) -> ComparisonResponse:
 
 @router.get("/health")
 async def health_check():
-    import sqlite3, os, tempfile, json
+    import sqlite3, os, tempfile, json, httpx
     from app.supabase_client import get_service_client as _gsc
+    from app.config import settings
     supabase = _gsc()
     db = os.path.join(tempfile.gettempdir(), "trade_tasks", "tasks.db")
     tasks = []
@@ -240,11 +241,27 @@ async def health_check():
             conn.close()
         except Exception:
             pass
+    sb_write = False
+    sb_read = False
+    try:
+        key = settings.supabase_anon_key or settings.supabase_service_key
+        if key:
+            base = settings.supabase_url.rstrip("/")
+            headers = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+            r = httpx.post(f"{base}/rest/v1/task_store?on_conflict=task_id", headers=headers,
+                json={"task_id": "health-check", "status": "ok"}, timeout=5)
+            sb_write = r.status_code in (200, 201)
+            r = httpx.get(f"{base}/rest/v1/task_store?task_id=eq.health-check&select=task_id", headers=headers, timeout=5)
+            sb_read = r.status_code == 200 and len(r.json()) > 0
+    except Exception:
+        pass
     return {
         "status": "ok",
         "service": "Trade Price Service",
         "timestamp": datetime.now(),
         "supabase_connected": supabase is not None,
+        "supabase_task_store_write": sb_write,
+        "supabase_task_store_read": sb_read,
         "tasks": tasks,
     }
 
