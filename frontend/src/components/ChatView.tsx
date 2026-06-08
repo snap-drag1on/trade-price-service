@@ -145,10 +145,10 @@ export function ChatView() {
               <input ref={inputRef} type="text" value={input} onChange={(e) => setInput(e.target.value)}
                 placeholder={language === "uz" ? "Mahsulot nomi..." : language === "ru" ? "Название товара..." : "Product name..."}
                 disabled={loading}
-                className="flex-1 bg-transparent py-2.5 text-sm text-gray-200 placeholder-gray-600 outline-none" />
+                className="flex-1 bg-transparent py-3 text-sm text-gray-200 placeholder-gray-600 outline-none" />
               <button type="submit" disabled={loading || !input.trim()}
-                className="text-gray-400 hover:text-gray-200 disabled:opacity-30 p-1">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" /></svg>
+                className="text-gray-400 hover:text-gray-200 disabled:opacity-30 p-2 hover:bg-[#3f3f3f] rounded-lg transition-colors">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" /></svg>
               </button>
             </div>
           </form>
@@ -159,8 +159,6 @@ export function ChatView() {
 }
 
 function MessageBubble({ message }: { message: Message }) {
-  const [showSources, setShowSources] = useState(false);
-
   if (message.role === "user") {
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-end">
@@ -210,17 +208,9 @@ function MessageBubble({ message }: { message: Message }) {
       )}
 
       {market && (
-        <>
-          <button onClick={() => setShowSources(v => !v)}
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-1">
-            {showSources ? "yashirish" : "manbalar"} {showSources ? "▲" : "▼"}
-          </button>
-          {showSources && (
-            <div className="mt-1">
-              <SourcesBadge market={market} opportunities={opportunities} />
-            </div>
-          )}
-        </>
+        <div className="mt-1">
+          <SourcesBadge market={market} opportunities={opportunities} />
+        </div>
       )}
     </motion.div>
   );
