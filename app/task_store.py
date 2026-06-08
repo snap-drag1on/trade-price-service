@@ -1,99 +1,89 @@
 from __future__ import annotations
 
 import json
+import os
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, Optional
+from pathlib import Path
 
-from app.supabase_client import get_service_client
 from app.log import get_logger
 
 logger = get_logger("task_store")
 
+TASK_DIR = Path("/tmp/trade_tasks")
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_lock = asyncio.Lock()
+
+
+def _ensure_dir():
+    TASK_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _path(task_id: str) -> Path:
+    return TASK_DIR / f"{task_id}.json"
 
 
 async def save_task(task_id: str, data: dict) -> None:
-    supabase = get_service_client()
-    if supabase is None:
-        logger.warning("Supabase unavailable, task %s not saved", task_id)
-        return
-    try:
-        row = {
-            "task_id": task_id,
-            "status": data.get("status", "processing"),
-            "flow": data.get("flow", ""),
-            "phases": data.get("phases", {}),
-            "result": data.get("result"),
-            "error": data.get("error"),
-        }
-        supabase.table("task_store").upsert(row).execute()
-        logger.info("Task %s saved (status=%s)", task_id[:12], row["status"])
-    except Exception as e:
-        logger.warning("Failed to save task %s: %s", task_id, e)
+    async with _lock:
+        _ensure_dir()
+        try:
+            entry = {
+                "task_id": task_id,
+                "status": data.get("status", "processing"),
+                "flow": data.get("flow", ""),
+                "phases": data.get("phases", {}),
+                "result": data.get("result"),
+                "error": data.get("error"),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            _path(task_id).write_text(json.dumps(entry, ensure_ascii=False))
+            logger.info("Task %s saved", task_id[:12])
+        except Exception as e:
+            logger.error("Failed to save task %s: %s", task_id, e)
 
 
 async def get_task(task_id: str) -> Optional[dict]:
-    supabase = get_service_client()
-    if supabase is None:
-        logger.warning("Supabase unavailable for task %s", task_id)
-        return None
-    try:
-        result = supabase.table("task_store").select("*").eq("task_id", task_id).limit(1).execute()
-        if result.data and len(result.data) > 0:
-            row = result.data[0]
-            phases = row.get("phases", {})
-            if isinstance(phases, str):
-                phases = json.loads(phases)
-            result_data = row.get("result")
-            if isinstance(result_data, str):
-                result_data = json.loads(result_data)
-            return {
-                "status": row.get("status", "unknown") or "unknown",
-                "flow": row.get("flow", "") or "",
-                "phases": phases or {},
-                "result": result_data,
-                "error": row.get("error"),
-                "timestamp": row.get("timestamp", _now_iso()),
-            }
-    except Exception as e:
-        logger.warning("Failed to get task %s: %s", task_id, e)
-    return None
+    async with _lock:
+        try:
+            p = _path(task_id)
+            if not p.exists():
+                return None
+            return json.loads(p.read_text())
+        except Exception as e:
+            logger.warning("Failed to read task %s: %s", task_id, e)
+            return None
 
 
 async def update_task(task_id: str, updates: dict) -> None:
-    supabase = get_service_client()
-    if supabase is None:
-        return
-    try:
-        update_data = {"timestamp": _now_iso()}
-        if "status" in updates:
-            update_data["status"] = updates["status"]
-        if "flow" in updates:
-            update_data["flow"] = updates["flow"]
-        if "phases" in updates:
-            current = await get_task(task_id)
-            merged = dict((current or {}).get("phases", {}) or {})
-            if isinstance(updates["phases"], dict):
-                merged.update(updates["phases"])
-            update_data["phases"] = merged
-        if "result" in updates:
-            update_data["result"] = updates["result"]
-        if "error" in updates:
-            update_data["error"] = updates["error"]
-        supabase.table("task_store").update(update_data).eq("task_id", task_id).execute()
-    except Exception as e:
-        logger.warning("Failed to update task %s: %s", task_id, e)
+    async with _lock:
+        try:
+            p = _path(task_id)
+            if not p.exists():
+                logger.warning("Task %s not found for update", task_id[:12])
+                return
+            entry = json.loads(p.read_text())
+            for key in ("status", "flow", "result", "error"):
+                if key in updates:
+                    entry[key] = updates[key]
+            if "phases" in updates and isinstance(updates["phases"], dict):
+                entry.setdefault("phases", {}).update(updates["phases"])
+            entry["timestamp"] = datetime.now(timezone.utc).isoformat()
+            p.write_text(json.dumps(entry, ensure_ascii=False))
+        except Exception as e:
+            logger.warning("Failed to update task %s: %s", task_id, e)
 
 
 async def count_active_tasks() -> int:
-    supabase = get_service_client()
-    if supabase is None:
-        return 0
-    try:
-        result = supabase.table("task_store").select("task_id", count="exact").eq("status", "processing").execute()
-        return result.count or 0
-    except Exception as e:
-        logger.warning("Failed to count tasks: %s", e)
-        return 0
+    async with _lock:
+        _ensure_dir()
+        count = 0
+        for f in TASK_DIR.iterdir():
+            if f.suffix == ".json":
+                try:
+                    entry = json.loads(f.read_text())
+                    if entry.get("status") == "processing":
+                        count += 1
+                except Exception:
+                    pass
+        return count
