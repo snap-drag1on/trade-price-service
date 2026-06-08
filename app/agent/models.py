@@ -15,51 +15,95 @@ class QueryResponse(BaseModel):
     success: bool
     task_id: str
     status: str
+    flow: Optional[str] = None
     phases: Optional[dict] = None
     result: Optional[dict] = None
     error: Optional[str] = None
     timestamp: datetime
 
 
+class PhaseProgress(BaseModel):
+    status: str = "pending"  # pending | running | completed | skipped | error
+    progress: float = 0.0    # 0.0 - 1.0
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error: Optional[str] = None
+    details: Optional[dict] = None
+
+
 class RouterPhase(BaseModel):
-    detected_language: str
-    product_category: str
-    search_intent: str
-    confidence: float
+    intent: str
+    pipeline: List[str]
+    product: str
+    detected_language: Optional[str] = None
+    confidence: float = 1.0
 
 
-class DiscoverySource(BaseModel):
-    source: str
+class OpportunityItem(BaseModel):
     product_name: str
-    price: float
-    currency: str
-    marketplace: str
-    source_url: str
-    confidence: float
+    category: Optional[str] = None
+    demand_score: float = 0
+    competition_score: float = 0
+    signal: Optional[str] = None
+    source: str = "web"
 
 
-class DiscoveryPhase(BaseModel):
-    sources: List[DiscoverySource]
-    average_price_usd: float
-    total_sources: int
+class OpportunityPhase(BaseModel):
+    opportunities: List[OpportunityItem] = []
+    sources_used: List[str] = []
 
 
-class TradeAnalystPhase(BaseModel):
-    hs_code: str
-    hs_description: str
-    duty_rate: float
-    vat_rate: float
-    certifications: List[dict]
-    freight: dict
-    notes: str
+class MarketData(BaseModel):
+    product_name: str = ""
+    china_price_usd: Optional[float] = None
+    china_source: Optional[str] = None
+    uz_price_usd: Optional[float] = None
+    uz_price_uzs: Optional[float] = None
+    uz_source: Optional[str] = None
+    weight_kg: Optional[float] = None
+    currency: str = "USD"
+    confidence: float = 0.0
 
 
-class DecisionPhase(BaseModel):
-    total_landed_cost_usd: float
-    total_landed_cost_uzs: float
-    breakdown: dict
-    recommendations: List[dict]
-    summary: str
+class LogisticsData(BaseModel):
+    origin: str = "CN"
+    destination: str = "UZ"
+    transport_mode: str = "rail"
+    distance_km: Optional[int] = None
+    transit_days: Optional[int] = None
+    cost_per_kg_usd: Optional[float] = None
+    total_freight_usd: Optional[float] = None
+    confidence: float = 0.0
+
+
+class TradeData(BaseModel):
+    hs_code: Optional[str] = None
+    hs_description: Optional[str] = None
+    duty_pct: Optional[float] = None
+    vat_pct: Optional[float] = None
+    freight_pct: Optional[float] = None
+    certifications: List[dict] = []
+    confidence: float = 0.0
+
+
+class ProfitData(BaseModel):
+    price_usd: Optional[float] = None
+    duty_amount: Optional[float] = None
+    vat_amount: Optional[float] = None
+    freight_amount: Optional[float] = None
+    total_landed_usd: Optional[float] = None
+    total_landed_uzs: Optional[float] = None
+    market_price_usd: Optional[float] = None
+    profit_usd: Optional[float] = None
+    margin_pct: Optional[float] = None
+
+
+class ConfidenceMetrics(BaseModel):
+    market_score: float = 0.0
+    logistics_score: float = 0.0
+    trade_score: float = 0.0
+    profit_score: float = 0.0
+    overall: float = 0.0
 
 
 class PriceCheckRequest(BaseModel):

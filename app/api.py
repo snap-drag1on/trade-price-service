@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from typing import Optional
+from typing import Optional, Any
 import uuid
 from datetime import datetime
 
@@ -18,7 +18,29 @@ from app.log import get_logger
 logger = get_logger("api")
 router = APIRouter(prefix="/api/v1", tags=["main"])
 
-TASK_STORE = {}
+TASK_STORE: dict[str, dict] = {}
+
+UI_PHASE_MAP = {
+    "router": {"label": "router", "order": 0},
+    "opportunity": {"label": "bozor_tahlili", "order": 1},
+    "market_research": {"label": "narxlar_yigilmoqda", "order": 2},
+    "logistics": {"label": "narxlar_yigilmoqda", "order": 2},
+    "trade_engine": {"label": "narxlar_yigilmoqda", "order": 2},
+    "profit": {"label": "foyda_hisoblanmoqda", "order": 3},
+    "decision": {"label": "tavsiya_tayyorlanmoqda", "order": 4},
+}
+
+
+def _progress_callback(task_id: str):
+    def callback(phase: str, data: dict):
+        if task_id not in TASK_STORE:
+            return
+        ui_label = UI_PHASE_MAP.get(phase, {}).get("label", phase)
+        TASK_STORE[task_id].setdefault("phases", {})
+        TASK_STORE[task_id]["phases"][phase] = data
+        TASK_STORE[task_id]["phases"][phase]["ui_label"] = ui_label
+        TASK_STORE[task_id]["timestamp"] = datetime.now()
+    return callback
 
 
 @router.post("/query", response_model=QueryResponse)
@@ -56,6 +78,7 @@ async def get_query_status(task_id: str) -> QueryResponse:
         success=not task_data.get("error"),
         task_id=task_id,
         status=task_data.get("status", "unknown"),
+        flow=task_data.get("flow"),
         phases=task_data.get("phases"),
         result=task_data.get("result"),
         error=task_data.get("error"),
@@ -71,7 +94,12 @@ async def _process_query_background(
     use_cache: bool,
 ):
     try:
-        TASK_STORE[task_id] = {"status": "processing", "timestamp": datetime.now()}
+        TASK_STORE[task_id] = {
+            "status": "processing",
+            "flow": "trade_check",
+            "phases": {},
+            "timestamp": datetime.now(),
+        }
 
         if use_cache:
             query_hash = compute_query_hash(product, None, destination)
@@ -79,32 +107,41 @@ async def _process_query_background(
             if cached:
                 TASK_STORE[task_id] = {
                     "status": "completed",
+                    "flow": "trade_check",
                     "result": {"source": "cache", "data": cached},
+                    "phases": {},
                     "timestamp": datetime.now(),
                 }
                 logger.info("Cache HIT for %s", task_id)
                 return
 
-        result = await run_agent(product, max_tool_rounds=10)
+        callback = _progress_callback(task_id)
+        result = await run_agent(product, max_tool_rounds=10, progress_callback=callback)
 
-        if isinstance(result, str):
-            try:
-                result = {"answer": result}
-            except Exception:
-                result = {"answer": result}
+        if isinstance(result, dict):
+            TASK_STORE[task_id] = {
+                "status": "completed",
+                "flow": result.get("intent") or result.get("flow", "trade_check"),
+                "result": result,
+                "phases": TASK_STORE[task_id].get("phases", {}),
+                "timestamp": datetime.now(),
+            }
+        else:
+            TASK_STORE[task_id] = {
+                "status": "completed",
+                "flow": "trade_check",
+                "result": {"answer": str(result)},
+                "phases": TASK_STORE[task_id].get("phases", {}),
+                "timestamp": datetime.now(),
+            }
 
-        TASK_STORE[task_id] = {
-            "status": "completed",
-            "result": result,
-            "phases": result.get("phases", {}),
-            "timestamp": datetime.now(),
-        }
         logger.info("Query completed: %s", task_id)
 
     except Exception as e:
         TASK_STORE[task_id] = {
             "status": "error",
             "error": str(e),
+            "phases": TASK_STORE[task_id].get("phases", {}),
             "timestamp": datetime.now(),
         }
         logger.error("Query failed %s: %s", task_id, e)

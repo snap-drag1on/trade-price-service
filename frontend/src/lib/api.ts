@@ -1,7 +1,7 @@
 import axios from "axios";
 import { QueryRequest, QueryResponse } from "./types";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8003/api/v1";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://trade-price-service.onrender.com/api/v1";
 
 const client = axios.create({
   baseURL: API_BASE_URL,
@@ -12,28 +12,36 @@ const client = axios.create({
 
 export const api = {
   async createQuery(req: QueryRequest): Promise<{ task_id: string }> {
-    const response = await client.post("/query", req);
-    return response.data;
+    const { data } = await client.post("/query", req);
+    return data;
   },
 
   async getQueryStatus(taskId: string): Promise<QueryResponse> {
-    const response = await client.get(`/query/${taskId}`);
-    return response.data;
+    const { data } = await client.get(`/query/${taskId}`);
+    return data;
   },
 
-  async pollQuery(taskId: string, maxAttempts = 60, interval = 5000): Promise<QueryResponse> {
+  async pollQuery(
+    taskId: string,
+    onProgress?: (phases: Record<string, any>) => void,
+    maxAttempts = 90,
+    interval = 2000,
+  ): Promise<QueryResponse> {
     for (let i = 0; i < maxAttempts; i++) {
       const result = await this.getQueryStatus(taskId);
+      if (result.phases && onProgress) {
+        onProgress(result.phases);
+      }
       if (result.status === "completed" || result.status === "error") {
         return result;
       }
       await new Promise((resolve) => setTimeout(resolve, interval));
     }
-    throw new Error("Query timeout");
+    throw new Error("Query timeout after " + (maxAttempts * interval / 1000) + "s");
   },
 
   async checkPrice(product: string, price: number, origin: string) {
-    const response = await client.post("/price-check", {
+    const { data } = await client.post("/price-check", {
       product_query: product,
       origin,
       destination: "UZ",
@@ -41,11 +49,11 @@ export const api = {
       currency: "USD",
       transport_mode: "rail",
     });
-    return response.data;
+    return data;
   },
 
   async health() {
-    const response = await client.get("/health");
-    return response.data;
+    const { data } = await client.get("/health");
+    return data;
   },
 };
