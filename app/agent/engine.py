@@ -250,12 +250,24 @@ async def _run_parallel_services(product: str, origin: str = "CN") -> tuple[dict
     logistics_task = _logistics_service(product, origin)
     trade_task = _trade_engine(product, origin)
 
-    results = await asyncio.gather(
-        market_task,
-        logistics_task,
-        trade_task,
-        return_exceptions=True,
+    done, _ = await asyncio.wait(
+        {market_task, logistics_task, trade_task},
+        timeout=25,
     )
+    results = [{} for _ in range(3)]
+    task_list = [market_task, logistics_task, trade_task]
+    for i, t in enumerate(task_list):
+        if t in done:
+            try:
+                r = t.result()
+                results[i] = r if not isinstance(r, Exception) else {}
+            except Exception:
+                results[i] = {}
+    logger.info("Parallel services: market=%s logistics=%s trade=%s (%d/%d done)",
+        "ok" if results[0].get("origin_price_usd") else "empty",
+        "ok" if results[1] else "empty",
+        "ok" if results[2] else "empty",
+        len(done), len(task_list))
 
     market = results[0] if not isinstance(results[0], Exception) else {}
     logistics = results[1] if not isinstance(results[1], Exception) else {}
