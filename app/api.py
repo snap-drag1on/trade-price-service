@@ -225,27 +225,27 @@ async def compare_offers(req: ComparisonRequest) -> ComparisonResponse:
 
 @router.get("/health")
 async def health_check():
-    import os, json, tempfile
+    import sqlite3, os, tempfile, json
     from app.supabase_client import get_service_client as _gsc
     supabase = _gsc()
-    sd = os.path.join(tempfile.gettempdir(), "trade_tasks")
+    db = os.path.join(tempfile.gettempdir(), "trade_tasks", "tasks.db")
     tasks = []
-    if os.path.isdir(sd):
-        for fn in sorted(os.listdir(sd)):
-            if fn.endswith(".json"):
-                fp = os.path.join(sd, fn)
-                try:
-                    with open(fp) as f:
-                        d = json.load(f)
-                    tasks.append({"id": fn[:-5], "status": d.get("status")})
-                except Exception:
-                    pass
+    if os.path.exists(db):
+        try:
+            conn = sqlite3.connect(db, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            cur = conn.execute("SELECT task_id, status, timestamp FROM tasks ORDER BY timestamp DESC LIMIT 10")
+            for row in cur:
+                tasks.append({"id": row["task_id"][:12], "status": row["status"]})
+            conn.close()
+        except Exception:
+            pass
     return {
         "status": "ok",
         "service": "Trade Price Service",
         "timestamp": datetime.now(),
         "supabase_connected": supabase is not None,
-        "tasks": tasks[-10:],
+        "tasks": tasks,
     }
 
 
