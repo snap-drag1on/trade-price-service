@@ -41,12 +41,13 @@ def _progress_callback(task_id: str):
     return callback
 
 
-@router.post("/query", response_model=QueryResponse)
+@router.post("/query")
 async def create_query(
     req: QueryRequest,
     background_tasks: BackgroundTasks,
-) -> QueryResponse:
+):
     task_id = str(uuid.uuid4())
+    import traceback
 
     try:
         await save_task(task_id, {
@@ -54,8 +55,21 @@ async def create_query(
             "flow": "",
             "phases": {},
         })
+        verify = await get_task(task_id)
+        if verify is None:
+            return {
+                "success": False,
+                "error": "save_task returned OK but task not found in DB",
+                "task_id": task_id,
+            }
     except Exception as e:
-        logger.error("Failed to save task %s: %s", task_id, e)
+        tb = traceback.format_exc()
+        return {
+            "success": False,
+            "error": f"save_task exception: {e}",
+            "traceback": tb,
+            "task_id": task_id,
+        }
 
     background_tasks.add_task(
         _process_query_background,
@@ -66,12 +80,11 @@ async def create_query(
         use_cache=req.use_cache,
     )
 
-    return QueryResponse(
-        success=True,
-        task_id=task_id,
-        status="processing",
-        timestamp=datetime.now(),
-    )
+    return {
+        "success": True,
+        "task_id": task_id,
+        "status": "processing",
+    }
 
 
 @router.get("/query/{task_id}", response_model=QueryResponse)
