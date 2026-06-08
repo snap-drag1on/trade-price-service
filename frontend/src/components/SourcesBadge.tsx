@@ -2,6 +2,7 @@
 
 interface SourcesBadgeProps {
   sources?: string[];
+  opportunities?: any[];
   market?: { china_source?: string; uz_source?: string };
 }
 
@@ -17,7 +18,7 @@ const SOURCE_META: Record<string, { icon: string; color: string }> = {
   Web: { icon: "🌐", color: "text-sky-400" },
 };
 
-export function SourcesBadge({ sources, market }: SourcesBadgeProps) {
+export function SourcesBadge({ sources, market, opportunities }: SourcesBadgeProps) {
   const sourceList: string[] = [];
 
   if (market?.china_source) {
@@ -28,6 +29,11 @@ export function SourcesBadge({ sources, market }: SourcesBadgeProps) {
   }
   if (sources) {
     sourceList.push(...sources);
+  }
+  if (opportunities) {
+    opportunities.forEach((o: any) => {
+      if (o?.source) sourceList.push(o.source);
+    });
   }
 
   if (sourceList.length === 0) return null;
