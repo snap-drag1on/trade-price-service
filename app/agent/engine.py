@@ -64,8 +64,9 @@ async def run_agent(
     intent = route.get("intent", "trade_check")
     pipeline = route.get("pipeline", ["parallel", "profit", "decision"])
     product_target = route.get("product", "")
+    origin_country = route.get("origin_country", "CN")
 
-    logger.info("Router → intent=%s pipeline=%s product=%s", intent, pipeline, product_target)
+    logger.info("Router → intent=%s origin=%s product=%s", intent, origin_country, product_target)
 
     _emit(progress_callback, "router", {"status": "completed", "progress": 1.0, "details": route})
 
@@ -93,7 +94,7 @@ async def run_agent(
             _emit(progress_callback, "logistics", {"status": "running", "progress": 0.0})
             _emit(progress_callback, "trade_engine", {"status": "running", "progress": 0.0})
 
-            market_data, logistics_data, trade_data = await _run_parallel_services(product_target or user_message)
+            market_data, logistics_data, trade_data = await _run_parallel_services(product_target or user_message, origin_country)
 
             context["market"] = market_data
             context["logistics"] = logistics_data
@@ -157,7 +158,7 @@ async def _route_intent(client: OpenAI, loop: asyncio.AbstractEventLoop, user_me
         except json.JSONDecodeError:
             pass
 
-    return {"intent": "trade_check", "pipeline": ["parallel", "profit", "decision"], "product": user_message}
+    return {"intent": "trade_check", "pipeline": ["parallel", "profit", "decision"], "product": user_message, "origin_country": "CN"}
 
 
 # ====================================================================
@@ -244,10 +245,10 @@ def _extract_opportunities(text: str) -> list[dict]:
 # No AI — pure data retrieval
 # ====================================================================
 
-async def _run_parallel_services(product: str) -> tuple[dict, dict, dict]:
-    market_task = _market_service(product)
-    logistics_task = _logistics_service(product)
-    trade_task = _trade_engine(product)
+async def _run_parallel_services(product: str, origin: str = "CN") -> tuple[dict, dict, dict]:
+    market_task = _market_service(product, origin)
+    logistics_task = _logistics_service(product, origin)
+    trade_task = _trade_engine(product, origin)
 
     results = await asyncio.gather(
         market_task,
@@ -270,19 +271,22 @@ async def _run_parallel_services(product: str) -> tuple[dict, dict, dict]:
     return market, logistics, trade
 
 
-async def _market_service(product: str) -> dict:
-    """Find prices from China and Uzbekistan marketplaces."""
-    result = {"product_name": product, "china_price_usd": None, "uz_price_usd": None, "confidence": 0.0}
+async def _market_service(product: str, origin: str = "CN") -> dict:
+    """Find prices from origin country and Uzbekistan marketplaces."""
+    result = {"product_name": product, "origin_price_usd": None, "origin_source": None, "uz_price_usd": None, "confidence": 0.0, "origin_country": origin}
 
-    cn_task = _search_china_prices(product)
+    if origin == "CN":
+        origin_task = _search_china_prices(product)
+    else:
+        origin_task = _search_country_prices(product, origin)
     uz_task = _search_uz_prices(product)
 
-    cn_result, uz_result = await asyncio.gather(cn_task, uz_task, return_exceptions=True)
+    origin_result, uz_result = await asyncio.gather(origin_task, uz_task, return_exceptions=True)
 
-    if not isinstance(cn_result, Exception) and cn_result:
-        result["china_price_usd"] = cn_result.get("price_usd")
-        result["china_source"] = cn_result.get("source")
-        result["weight_kg"] = cn_result.get("weight_kg")
+    if not isinstance(origin_result, Exception) and origin_result:
+        result["origin_price_usd"] = origin_result.get("price_usd")
+        result["origin_source"] = origin_result.get("source")
+        result["weight_kg"] = origin_result.get("weight_kg")
 
     if not isinstance(uz_result, Exception) and uz_result:
         result["uz_price_usd"] = uz_result.get("price_usd")
@@ -290,7 +294,7 @@ async def _market_service(product: str) -> dict:
         result["uz_source"] = uz_result.get("source")
 
     confidence = 0.0
-    if result["china_price_usd"] is not None:
+    if result["origin_price_usd"] is not None:
         confidence += 0.5
     if result["uz_price_usd"] is not None:
         confidence += 0.5
@@ -374,10 +378,56 @@ async def _search_uz_prices(product: str) -> Optional[dict]:
     return None
 
 
-async def _logistics_service(product: str) -> dict:
-    """Get freight info from DB. Product not needed directly — uses CN→UZ corridor."""
+async def _search_country_prices(product: str, origin: str) -> Optional[dict]:
+    """Search marketplaces of a specific origin country for prices."""
+    try:
+        from app.agent.tools import COUNTRY_MARKETPLACES
+        info = COUNTRY_MARKETPLACES.get(origin)
+        if info:
+            marketplaces = info.get("marketplaces", [])[:3]
+            for mp in marketplaces:
+                result = await TOOL_MAP["web_search"](f"site:{mp} {product}", max_results=2)
+                if result.success and result.data:
+                    prices = []
+                    for item in result.data:
+                        snippet = item.get("body", "") or item.get("title", "")
+                        price_match = re.search(r'\$?(\d+\.?\d*)', snippet)
+                        if price_match:
+                            try:
+                                prices.append(float(price_match.group(1)))
+                            except ValueError:
+                                pass
+                    if prices:
+                        avg = round(sum(prices) / len(prices), 2)
+                        return {"price_usd": avg, "source": mp, "weight_kg": None}
+    except Exception as e:
+        logger.debug("Country price search failed for %s: %s", origin, e)
+
+    try:
+        result = await TOOL_MAP["web_search"](f"{product} price {origin} USD", max_results=5)
+        if result.success and result.data:
+            prices = []
+            for item in result.data:
+                body = item.get("body", "") or item.get("title", "")
+                price_match = re.search(r'\$?(\d+\.?\d*)', body)
+                if price_match:
+                    try:
+                        prices.append(float(price_match.group(1)))
+                    except ValueError:
+                        pass
+            if prices:
+                avg = round(sum(prices) / len(prices), 2)
+                return {"price_usd": avg, "source": f"{origin} (web)", "weight_kg": None}
+    except Exception as e:
+        logger.debug("Country web search failed: %s", e)
+
+    return None
+
+
+async def _logistics_service(product: str, origin: str = "CN") -> dict:
+    """Get freight info from DB. Uses origin→UZ corridor."""
     result = {
-        "origin": "CN",
+        "origin": origin,
         "destination": "UZ",
         "cost_per_kg_usd": None,
         "transit_days": None,
@@ -386,7 +436,7 @@ async def _logistics_service(product: str) -> dict:
     }
 
     try:
-        freight = await TOOL_MAP["get_freight_corridor"]("CN", "UZ", "rail")
+        freight = await TOOL_MAP["get_freight_corridor"](origin, "UZ", "rail")
         if freight.success and freight.data:
             result["cost_per_kg_usd"] = freight.data.get("cost_per_kg_usd")
             result["transit_days"] = freight.data.get("transit_days_min") or freight.data.get("transit_days_max")
@@ -396,7 +446,7 @@ async def _logistics_service(product: str) -> dict:
         logger.debug("Rail freight failed: %s", e)
 
     try:
-        multi = await TOOL_MAP["get_logistics_multi_route"]("CN", "UZ", weight_kg=1)
+        multi = await TOOL_MAP["get_logistics_multi_route"](origin, "UZ", weight_kg=1)
         if multi.success and multi.data:
             routes = multi.data.get("routes", [])
             if routes:
@@ -413,16 +463,16 @@ async def _logistics_service(product: str) -> dict:
     return result
 
 
-async def _trade_engine(product: str) -> dict:
+async def _trade_engine(product: str, origin: str = "CN") -> dict:
     """Get duty/VAT from DB. Try to find HS code by product name."""
-    result = {"hs_code": None, "hs_description": None, "duty_pct": None, "vat_pct": None, "freight_pct": None, "confidence": 0.0}
+    result = {"hs_code": None, "hs_description": None, "duty_pct": None, "vat_pct": None, "freight_pct": None, "confidence": 0.0, "origin_country": origin}
 
     hs_code = await _find_hs_code(product)
 
     if hs_code:
         result["hs_code"] = hs_code
         try:
-            trade = await TOOL_MAP["get_trade_costs"]("CN", "UZ", hs_code, "rail")
+            trade = await TOOL_MAP["get_trade_costs"](origin, "UZ", hs_code, "rail")
             if trade.success and trade.data:
                 result["duty_pct"] = trade.data.get("duty_pct")
                 result["vat_pct"] = trade.data.get("vat_pct")
@@ -479,7 +529,7 @@ def _calculate_profit(market: Optional[dict], logistics: Optional[dict], trade: 
     logistics = logistics or {}
     trade = trade or {}
 
-    price_usd = market.get("china_price_usd") or 0
+    price_usd = market.get("origin_price_usd") or market.get("china_price_usd") or 0
     uz_price_usd = market.get("uz_price_usd") or 0
 
     if price_usd <= 0:
@@ -561,12 +611,14 @@ async def _run_decision_phase(client: OpenAI, loop: asyncio.AbstractEventLoop, c
         prompt_parts.append("=== TOPILGAN IMKONIYATLAR ===\n" + json.dumps(opportunities, ensure_ascii=False, indent=2) + "\n")
 
     NA = "ma'lum emas"
+    origin_country = market.get("origin_country", "CN")
     prompt_parts.append(
         "=== MARKET MA'LUMOTLARI ===\n"
         f"Mahsulot: {market.get('product_name', product_target)}\n"
-        f"Xitoy narxi: ${market.get('china_price_usd', NA)}\n"
+        f"Origin: {origin_country}\n"
+        f"Origin narxi: ${market.get('origin_price_usd', market.get('china_price_usd', NA))}\n"
         f"O'zbekiston narxi: ${market.get('uz_price_usd', NA)}\n"
-        f"Manba: {market.get('china_source', 'noma_lum')} / {market.get('uz_source', 'noma_lum')}\n"
+        f"Manba: {market.get('origin_source', market.get('china_source', 'noma_lum'))} / {market.get('uz_source', 'noma_lum')}\n"
         f"Ishonchlilik: {market.get('confidence', 0)}\n"
         "\n"
         "=== LOGISTIKA ===\n"
@@ -632,10 +684,11 @@ def _generate_fallback_answer(context: dict) -> str:
         lines.append(f"📈 Marja: {profit_data['margin_pct']}%")
     if profit_data.get("profit_usd"):
         lines.append(f"💵 Foyda: ${profit_data['profit_usd']}")
-    cn_price = market.get("china_price_usd")
+    origin_price = market.get("origin_price_usd") or market.get("china_price_usd")
     uz_price = market.get("uz_price_usd")
-    if cn_price:
-        lines.append(f"\n🏷️ Xitoy narxi: ${cn_price}")
+    origin_name = market.get("origin_country", "CN")
+    if origin_price:
+        lines.append(f"\n🏷️ {origin_name} narxi: ${origin_price}")
     if uz_price:
         lines.append(f"🏷️ O'zbekiston narxi: ${uz_price}")
     lines.append(f"\n📊 Ishonchlilik: {confidence.get('overall', 0)*100:.0f}%")

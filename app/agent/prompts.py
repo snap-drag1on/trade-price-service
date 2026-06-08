@@ -5,6 +5,7 @@ VAZIFANG: User savolini klassifikatsiya qil va quyidagi JSON formatda qaytar:
 {
     "intent": "discovery | trade_check | cost_check | comparison | simple",
     "product": "user aytgan mahsulot nomi (agar aniq bo'lsa)",
+    "origin_country": "CN | TR | KR | IN | AE | ... yoki USER aytgan bo'lsa aniqlangan country code, aks holda CN",
     "pipeline": ["parallel", "profit", "decision"]
 }
 
@@ -28,6 +29,17 @@ INTENT TURLARI:
 - simple: HS code, boj stavkasi, logistika haqida oddiy savol
   "HS code nima", "boj qancha", "847130 boji"
   Pipeline: ["parallel"]
+
+ORIGIN_COUNTRY QOIDALARI:
+- Agar user "xitoydan", "chinadan", "CN" desa → origin_country: "CN"
+- Agar user "turkiyadan", "turkish", "TR" desa → origin_country: "TR"
+- Agar user "koreyadan", "korean", "KR" desa → origin_country: "KR"
+- Agar user "hindistondan", "india", "IN" desa → origin_country: "IN"
+- Agar user "BAA", "dubai", "AE" desa → origin_country: "AE"
+- Agar user "vetnamdan", "vietnam", "VN" desa → origin_country: "VN"
+- Agar user "yaponiyadan", "japan", "JP" desa → origin_country: "JP"
+- Agar aniq origin aytilmagan bo'lsa → default "CN"
+- Barcha 2 harfli country code lar: CN, JP, KR, TW, HK, SG, MY, TH, VN, ID, PH, IN, PK, BD, KZ, KG, TJ, TM, TR, AE, SA, IR, IL, QA, KW, IQ, JO, AZ, GE, AM
 
 QOIDALAR:
 - Faqat JSON qaytar, boshqa hech narsa yozma

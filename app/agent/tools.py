@@ -42,6 +42,52 @@ class ToolResult:
     error: str = ""
 
 
+COUNTRY_MARKETPLACES: dict[str, dict[str, Any]] = {
+    "CN": {"name": "China", "marketplaces": ["1688.com", "alibaba.com", "made-in-china.com", "taobao.com", "tmall.com"]},
+    "JP": {"name": "Japan", "marketplaces": ["rakuten.co.jp", "amazon.co.jp", "yahoo.co.jp", "mercari.com"]},
+    "KR": {"name": "South Korea", "marketplaces": ["coupang.com", "gmarket.co.kr", "auction.co.kr", "11st.co.kr"]},
+    "TW": {"name": "Taiwan", "marketplaces": ["shopee.tw", "ruten.com.tw", "pchome.com.tw", "momoshop.com.tw"]},
+    "HK": {"name": "Hong Kong", "marketplaces": ["price.com.hk", "hktvmall.com", "carousell.com.hk"]},
+    "SG": {"name": "Singapore", "marketplaces": ["shopee.sg", "amazon.sg", "lazada.sg", "qoo10.sg", "carousell.com.sg"]},
+    "MY": {"name": "Malaysia", "marketplaces": ["shopee.com.my", "lazada.com.my", "mudah.my", "pgmall.my"]},
+    "TH": {"name": "Thailand", "marketplaces": ["shopee.co.th", "lazada.co.th", "jd.co.th", "central.co.th"]},
+    "VN": {"name": "Vietnam", "marketplaces": ["shopee.vn", "lazada.vn", "tiki.vn", "sendo.vn", "thegioididong.com"]},
+    "ID": {"name": "Indonesia", "marketplaces": ["tokopedia.com", "shopee.co.id", "bukalapak.com", "lazada.co.id", "blibli.com"]},
+    "PH": {"name": "Philippines", "marketplaces": ["shopee.ph", "lazada.com.ph", "zalora.com.ph"]},
+    "IN": {"name": "India", "marketplaces": ["amazon.in", "flipkart.com", "meesho.com", "snapdeal.com", "indiamart.com"]},
+    "PK": {"name": "Pakistan", "marketplaces": ["daraz.pk", "shophive.com", "homeshopping.pk", "priceoye.pk"]},
+    "BD": {"name": "Bangladesh", "marketplaces": ["daraz.com.bd", "ajkerdeal.com", "chaldal.com", "priyoshop.com"]},
+    "KZ": {"name": "Kazakhstan", "marketplaces": ["kaspi.kz", "shop.kz", "wildberries.kz", "ozon.kz"]},
+    "KG": {"name": "Kyrgyzstan", "marketplaces": ["sulpak.kg", "kiviyo.kg", "wildberries.kg", "ozon.kg"]},
+    "TJ": {"name": "Tajikistan", "marketplaces": ["somon.tj", "elita.tj", "bozor.tj"]},
+    "TM": {"name": "Turkmenistan", "marketplaces": ["gulstan.tm", "elektron.tm", "bazar.tm"]},
+    "TR": {"name": "Turkey", "marketplaces": ["hepsiburada.com", "trendyol.com", "n11.com", "ciceksepeti.com", "amazon.com.tr"]},
+    "AE": {"name": "UAE", "marketplaces": ["amazon.ae", "noon.com", "dubizzle.com", "carrefouruae.com"]},
+    "SA": {"name": "Saudi Arabia", "marketplaces": ["noon.com", "amazon.sa", "jarir.com", "extra.com"]},
+    "IR": {"name": "Iran", "marketplaces": ["digikala.com", "torob.com", "emalls.ir", "zoomg.ir", "bamilo.com"]},
+    "IL": {"name": "Israel", "marketplaces": ["zap.co.il", "ksp.co.il", "shufersal.co.il"]},
+    "QA": {"name": "Qatar", "marketplaces": ["noon.com", "carrefourqatar.com", "luluqatar.com"]},
+    "KW": {"name": "Kuwait", "marketplaces": ["talabat.com", "xcite.com", "jarir.com"]},
+    "IQ": {"name": "Iraq", "marketplaces": ["trendyol.com", "hepsiburada.com"]},
+    "JO": {"name": "Jordan", "marketplaces": ["amazon.sa", "noon.com", "trendyol.com"]},
+    "AZ": {"name": "Azerbaijan", "marketplaces": ["tap.az", "trendyol.com", "hepsiburada.com"]},
+    "GE": {"name": "Georgia", "marketplaces": ["trendyol.com", "hepsiburada.com", "amazon.de"]},
+    "AM": {"name": "Armenia", "marketplaces": ["trendyol.com", "hepsiburada.com", "amazon.de"]},
+}
+
+COUNTRY_TRADE_RULES: dict[str, dict[str, Any]] = {
+    "CN": {"name": "China", "currency": "CNY", "export_docs": ["Commercial Invoice", "Packing List", "Bill of Lading/AWB", "Certificate of Origin"], "restricted_categories": ["Dual-use goods", "Electronics with encryption", "Chemicals"], "note": "FOB price includes local logistics to port."},
+    "TR": {"name": "Turkey", "currency": "TRY", "agreement": "UZ-TR PTA — reduced duties", "export_docs": ["Commercial Invoice", "Packing List", "EUR.1 or A.TR Certificate", "Certificate of Origin"], "restricted_categories": ["Textiles (quota)", "Steel", "Used goods"], "note": "Check agreement_tariffs for preferential rates."},
+    "KR": {"name": "South Korea", "currency": "KRW", "export_docs": ["Commercial Invoice", "Packing List", "Bill of Lading/AWB", "Certificate of Origin"], "restricted_categories": ["Electronics (KCs)", "Cosmetics", "Food"], "note": "MFN rates. No FTA."},
+    "IN": {"name": "India", "currency": "INR", "export_docs": ["Commercial Invoice", "Packing List", "Bill of Lading/AWB", "Certificate of Origin", "Phytosanitary"], "restricted_categories": ["Pharmaceuticals (WHO GMP)", "Food (FSSAI)", "Chemicals"], "note": "Pharmaceuticals and textiles are key categories."},
+    "AE": {"name": "UAE", "currency": "AED", "export_docs": ["Commercial Invoice", "Packing List", "Certificate of Origin", "Bill of Lading/AWB"], "restricted_categories": ["Gold/jewelry", "Electronics (ESMA)", "Used goods"], "note": "Re-export hub for CN/IN/TR goods."},
+    "KZ": {"name": "Kazakhstan", "currency": "KZT", "agreement": "CIS-FTA — 0% duty", "export_docs": ["Commercial Invoice", "Packing List", "CT-1 Certificate", "Bill of Lading/AWB"], "restricted_categories": ["Alcohol", "Tobacco", "Weapons"], "note": "Easiest corridor for UZ. Shared border."},
+    "JP": {"name": "Japan", "currency": "JPY", "export_docs": ["Commercial Invoice", "Packing List", "Air Waybill", "Certificate of Origin"], "restricted_categories": ["Used vehicles (age)", "Electronics (PSE)", "Food"], "note": "Used cars popular for UZ."},
+    "SG": {"name": "Singapore", "currency": "SGD", "export_docs": ["Commercial Invoice", "Packing List", "Certificate of Origin", "Bill of Lading/AWB"], "restricted_categories": ["Chewing gum", "Fireworks", "Weapons"], "note": "Major transshipment hub."},
+    "MY": {"name": "Malaysia", "currency": "MYR", "export_docs": ["Commercial Invoice", "Packing List", "Certificate of Origin", "Bill of Lading/AWB", "Phytosanitary"], "restricted_categories": ["Palm oil (quota)", "Electronics (SIRIM)", "Wood"], "note": "Palm oil, electronics, rubber."},
+}
+
+
 TOOL_DEFINITIONS = [
     {
         "type": "function",
@@ -258,6 +304,46 @@ TOOL_DEFINITIONS = [
                     },
                 },
                 "required": ["origin", "destination"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_country_marketplaces",
+            "description": "Search marketplaces of a specific Asian country for product prices. Returns results from known marketplaces via web search.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "country": {
+                        "type": "string",
+                        "description": "Country code (2 letters, e.g. KR, IN, TR, AE, SG)",
+                    },
+                    "query": {"type": "string", "description": "Product search query"},
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum results to return",
+                        "default": 5,
+                    },
+                },
+                "required": ["country", "query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_country_trade_rules",
+            "description": "Get customs/duty rules, required documents, and restricted categories for a specific origin country.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "country": {
+                        "type": "string",
+                        "description": "Country code (2 letters, e.g. CN, TR, KR, IN, AE, KZ)",
+                    },
+                },
+                "required": ["country"],
             },
         },
     },
@@ -779,6 +865,40 @@ async def get_logistics_multi_route(origin: str, destination: str, weight_kg: fl
     })
 
 
+async def search_country_marketplaces(country: str, query: str, max_results: int = 5) -> ToolResult:
+    country = country.upper()
+    info = COUNTRY_MARKETPLACES.get(country)
+    if not info:
+        return ToolResult(success=False, error=f"No marketplaces configured for country '{country}'")
+    combined = []
+    for marketplace in info["marketplaces"][:4]:
+        try:
+            result = await web_search(f"site:{marketplace} {query}", max_results=2)
+            if result.success and result.data:
+                for item in result.data[:2]:
+                    combined.append({
+                        "product_name": item.get("title", ""),
+                        "price": 0,
+                        "currency": "USD",
+                        "marketplace": marketplace,
+                        "source_url": item.get("href", ""),
+                        "snippet": item.get("body", ""),
+                    })
+        except Exception as exc:
+            logger.debug("Marketplace %s search failed: %s", marketplace, exc)
+    if not combined:
+        return ToolResult(success=False, error=f"No marketplace results for '{query}' in {info['name']}")
+    return ToolResult(data={"country": country, "country_name": info["name"], "results": combined[:max_results]})
+
+
+async def get_country_trade_rules(country: str) -> ToolResult:
+    country = country.upper()
+    info = COUNTRY_TRADE_RULES.get(country)
+    if not info:
+        return ToolResult(success=False, error=f"No trade rules configured for country '{country}'")
+    return ToolResult(data=info)
+
+
 TOOL_MAP = {
     "search_products": search_products,
     "get_exchange_rate": get_exchange_rate,
@@ -791,4 +911,6 @@ TOOL_MAP = {
     "search_cn_sources": search_cn_sources,
     "search_uz_marketplaces": search_uz_marketplaces,
     "get_logistics_multi_route": get_logistics_multi_route,
+    "search_country_marketplaces": search_country_marketplaces,
+    "get_country_trade_rules": get_country_trade_rules,
 }
