@@ -51,14 +51,17 @@ def _supabase_headers() -> Optional[dict]:
         if not key:
             key = settings.supabase_service_key
         if not key:
+            logger.warning("No Supabase key configured for task persistence")
             return None
+        logger.info("Supabase task key prefix: %s... (len=%d)", key[:8], len(key))
         return {
             "apikey": key,
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
             "Prefer": "return=representation",
         }
-    except Exception:
+    except Exception as e:
+        logger.warning("Supabase headers error: %s", e)
         return None
 
 
