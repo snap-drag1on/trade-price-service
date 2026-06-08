@@ -41,35 +41,18 @@ def _progress_callback(task_id: str):
     return callback
 
 
-@router.post("/query")
+@router.post("/query", response_model=QueryResponse)
 async def create_query(
     req: QueryRequest,
     background_tasks: BackgroundTasks,
-):
+) -> QueryResponse:
     task_id = str(uuid.uuid4())
-    import traceback
 
-    try:
-        await save_task(task_id, {
-            "status": "processing",
-            "flow": "",
-            "phases": {},
-        })
-        verify = await get_task(task_id)
-        if verify is None:
-            return {
-                "success": False,
-                "error": "save_task returned OK but task not found in DB",
-                "task_id": task_id,
-            }
-    except Exception as e:
-        tb = traceback.format_exc()
-        return {
-            "success": False,
-            "error": f"save_task exception: {e}",
-            "traceback": tb,
-            "task_id": task_id,
-        }
+    await save_task(task_id, {
+        "status": "processing",
+        "flow": "",
+        "phases": {},
+    })
 
     background_tasks.add_task(
         _process_query_background,
@@ -80,11 +63,12 @@ async def create_query(
         use_cache=req.use_cache,
     )
 
-    return {
-        "success": True,
-        "task_id": task_id,
-        "status": "processing",
-    }
+    return QueryResponse(
+        success=True,
+        task_id=task_id,
+        status="processing",
+        timestamp=datetime.now(),
+    )
 
 
 @router.get("/query/{task_id}", response_model=QueryResponse)
@@ -241,24 +225,13 @@ async def compare_offers(req: ComparisonRequest) -> ComparisonResponse:
 
 @router.get("/health")
 async def health_check():
-    import uuid
     from app.supabase_client import get_service_client as _gsc
-    from app.task_store import save_task as _st, get_task as _gt
     supabase = _gsc()
-    write_test = None
-    tid = "hct-" + uuid.uuid4().hex[:8]
-    try:
-        await _st(tid, {"status": "health_check", "flow": "test", "phases": {}})
-        t = await _gt(tid)
-        write_test = "ok" if t and t.get("status") == "health_check" else "not_found"
-    except Exception as e:
-        write_test = f"err: {e}"
     return {
         "status": "ok",
         "service": "Trade Price Service",
         "timestamp": datetime.now(),
         "supabase_connected": supabase is not None,
-        "write_test": write_test,
     }
 
 
