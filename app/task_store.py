@@ -24,12 +24,12 @@ async def save_task(task_id: str, data: dict) -> None:
             "task_id": task_id,
             "status": data.get("status", "processing"),
             "flow": data.get("flow", ""),
-            "phases": json.dumps(data.get("phases", {}), ensure_ascii=False),
-            "result": json.dumps(data.get("result"), ensure_ascii=False) if data.get("result") else None,
+            "phases": data.get("phases", {}),
+            "result": data.get("result"),
             "error": data.get("error"),
-            "timestamp": _now_iso(),
         }
         supabase.table("task_store").upsert(row).execute()
+        logger.info("Task %s saved (status=%s)", task_id[:12], row["status"])
     except Exception as e:
         logger.warning("Failed to save task %s: %s", task_id, e)
 
@@ -43,11 +43,17 @@ async def get_task(task_id: str) -> Optional[dict]:
         result = supabase.table("task_store").select("*").eq("task_id", task_id).limit(1).execute()
         if result.data and len(result.data) > 0:
             row = result.data[0]
+            phases = row.get("phases", {})
+            if isinstance(phases, str):
+                phases = json.loads(phases)
+            result_data = row.get("result")
+            if isinstance(result_data, str):
+                result_data = json.loads(result_data)
             return {
-                "status": row.get("status", "unknown"),
-                "flow": row.get("flow", ""),
-                "phases": json.loads(row.get("phases", "{}")) if row.get("phases") else {},
-                "result": json.loads(row.get("result")) if row.get("result") else None,
+                "status": row.get("status", "unknown") or "unknown",
+                "flow": row.get("flow", "") or "",
+                "phases": phases or {},
+                "result": result_data,
                 "error": row.get("error"),
                 "timestamp": row.get("timestamp", _now_iso()),
             }
@@ -68,12 +74,12 @@ async def update_task(task_id: str, updates: dict) -> None:
             update_data["flow"] = updates["flow"]
         if "phases" in updates:
             current = await get_task(task_id)
-            merged = (current or {}).get("phases", {}) or {}
+            merged = dict((current or {}).get("phases", {}) or {})
             if isinstance(updates["phases"], dict):
                 merged.update(updates["phases"])
-            update_data["phases"] = json.dumps(merged, ensure_ascii=False)
+            update_data["phases"] = merged
         if "result" in updates:
-            update_data["result"] = json.dumps(updates["result"], ensure_ascii=False)
+            update_data["result"] = updates["result"]
         if "error" in updates:
             update_data["error"] = updates["error"]
         supabase.table("task_store").update(update_data).eq("task_id", task_id).execute()
