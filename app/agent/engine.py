@@ -253,24 +253,25 @@ async def _run_parallel_services(product: str, origin: str = "CN") -> tuple[dict
     logistics_task = _logistics_service(product, origin)
     trade_task = _trade_engine(product, origin)
 
-    done, _ = await asyncio.wait(
-        {market_task, logistics_task, trade_task},
-        timeout=45,
+    async def _run_with_timeout(coro, timeout=30):
+        try:
+            return await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.info("Service timeout after %ds", timeout)
+            return {}
+        except Exception as e:
+            logger.debug("Service error: %s", e)
+            return {}
+
+    results = await asyncio.gather(
+        _run_with_timeout(_market_service(product, origin), timeout=30),
+        _run_with_timeout(_logistics_service(product, origin), timeout=10),
+        _run_with_timeout(_trade_engine(product, origin), timeout=30),
     )
-    results = [{} for _ in range(3)]
-    task_list = [market_task, logistics_task, trade_task]
-    for i, t in enumerate(task_list):
-        if t in done:
-            try:
-                r = t.result()
-                results[i] = r if not isinstance(r, Exception) else {}
-            except Exception:
-                results[i] = {}
-    logger.info("Parallel services: market=%s logistics=%s trade=%s (%d/%d done)",
-        "ok" if results[0].get("origin_price_usd") else "empty",
-        "ok" if results[1] else "empty",
-        "ok" if results[2] else "empty",
-        len(done), len(task_list))
+    logger.info("Parallel services: market=%s logistics=%s trade=%s",
+        "ok" if isinstance(results[0], dict) and results[0].get("origin_price_usd") else "empty",
+        "ok" if isinstance(results[1], dict) and results[1].get("cost_per_kg_usd") else "empty",
+        "ok" if isinstance(results[2], dict) and results[2].get("hs_code") else "empty")
 
     market = results[0] if not isinstance(results[0], Exception) else {}
     logistics = results[1] if not isinstance(results[1], Exception) else {}
