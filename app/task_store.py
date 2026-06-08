@@ -44,20 +44,31 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _get_supabase():
+def _supabase_headers() -> Optional[dict]:
     try:
-        from app.supabase_client import get_service_client
-        return get_service_client()
+        from app.config import settings
+        key = settings.supabase_service_key or settings.supabase_anon_key
+        if not key:
+            return None
+        return {
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation",
+        }
     except Exception:
         return None
 
 
 async def _supabase_save(task_id: str, data: dict) -> None:
+    import httpx
     try:
-        sb = _get_supabase()
-        if sb is None:
+        headers = _supabase_headers()
+        if headers is None:
             return
-        sb.table("task_store").upsert({
+        from app.config import settings
+        url = f"{settings.supabase_url}/rest/v1/task_store"
+        payload = {
             "task_id": task_id,
             "status": data.get("status", "processing") or "processing",
             "flow": data.get("flow", "") or "",
@@ -65,41 +76,56 @@ async def _supabase_save(task_id: str, data: dict) -> None:
             "result": json.dumps(data.get("result")) if data.get("result") else None,
             "error": data.get("error"),
             "timestamp": _now_iso(),
-        }, on_conflict="task_id").execute()
+        }
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.post(f"{url}?on_conflict=task_id", headers=headers, json=payload)
+            if resp.status_code not in (200, 201):
+                logger.debug("Supabase save returned %d: %s", resp.status_code, resp.text[:100])
     except Exception as e:
         logger.debug("Supabase task save failed: %s", e)
 
 
 async def _supabase_get(task_id: str) -> Optional[dict]:
+    import httpx
     try:
-        sb = _get_supabase()
-        if sb is None:
+        headers = _supabase_headers()
+        if headers is None:
             return None
-        resp = sb.table("task_store").select("*").eq("task_id", task_id).execute()
-        rows = resp.data if resp.data else []
-        if rows:
-            row = rows[0]
-            return {
-                "status": row.get("status", "unknown"),
-                "flow": row.get("flow", ""),
-                "phases": json.loads(row["phases"]) if row.get("phases") else {},
-                "result": json.loads(row["result"]) if row.get("result") else None,
-                "error": row.get("error"),
-                "timestamp": row.get("timestamp", _now_iso()),
-            }
+        from app.config import settings
+        url = f"{settings.supabase_url}/rest/v1/task_store"
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(
+                f"{url}?task_id=eq.{task_id}&select=*",
+                headers=headers,
+            )
+            if resp.status_code == 200:
+                rows = resp.json()
+                if rows and len(rows) > 0:
+                    row = rows[0]
+                    return {
+                        "status": row.get("status", "unknown"),
+                        "flow": row.get("flow", ""),
+                        "phases": json.loads(row["phases"]) if row.get("phases") else {},
+                        "result": json.loads(row["result"]) if row.get("result") else None,
+                        "error": row.get("error"),
+                        "timestamp": row.get("timestamp", _now_iso()),
+                    }
     except Exception as e:
         logger.debug("Supabase task get failed: %s", e)
     return None
 
 
 async def _supabase_update(task_id: str, updates: dict) -> None:
+    import httpx
     try:
-        sb = _get_supabase()
-        if sb is None:
+        headers = _supabase_headers()
+        if headers is None:
             return
         current = await _supabase_get(task_id)
         if not current:
             return
+        from app.config import settings
+        url = f"{settings.supabase_url}/rest/v1/task_store"
         phases = dict(current.get("phases", {}))
         if "phases" in updates and isinstance(updates["phases"], dict):
             phases.update(updates["phases"])
@@ -107,7 +133,7 @@ async def _supabase_update(task_id: str, updates: dict) -> None:
         flow = updates.get("flow", current.get("flow", ""))
         result = json.dumps(updates["result"]) if "result" in updates and updates["result"] else (json.dumps(current["result"]) if current.get("result") else None)
         error = updates.get("error", current.get("error"))
-        sb.table("task_store").upsert({
+        payload = {
             "task_id": task_id,
             "status": status,
             "flow": flow,
@@ -115,7 +141,11 @@ async def _supabase_update(task_id: str, updates: dict) -> None:
             "result": result,
             "error": error,
             "timestamp": _now_iso(),
-        }, on_conflict="task_id").execute()
+        }
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.post(f"{url}?on_conflict=task_id", headers=headers, json=payload)
+            if resp.status_code not in (200, 201):
+                logger.debug("Supabase update returned %d: %s", resp.status_code, resp.text[:100])
     except Exception as e:
         logger.debug("Supabase task update failed: %s", e)
 
