@@ -104,6 +104,7 @@ async def _process_query_background(
     destination: str,
     use_cache: bool,
 ):
+    callback = None
     try:
         if use_cache:
             query_hash = compute_query_hash(product, None, destination)
@@ -118,7 +119,7 @@ async def _process_query_background(
                 return
 
         callback = _progress_callback(task_id)
-        result = await run_agent(product, max_tool_rounds=10, progress_callback=callback)
+        result = await asyncio.wait_for(run_agent(product, max_tool_rounds=10, progress_callback=callback), timeout=90)
 
         if isinstance(result, dict):
             await update_task(task_id, {
