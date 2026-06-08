@@ -23,6 +23,20 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _write_json(path: str, data: dict) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+    os.replace(tmp, path)
+
+
+def _read_json(path: str) -> Optional[dict]:
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            return json.load(f)
+    return None
+
+
 async def save_task(task_id: str, data: dict) -> None:
     path = _path(task_id)
     row = {
@@ -34,8 +48,7 @@ async def save_task(task_id: str, data: dict) -> None:
         "timestamp": _now_iso(),
     }
     try:
-        with open(path, "w") as f:
-            json.dump(row, f)
+        _write_json(path, row)
         logger.info("Task %s saved (status=%s)", task_id[:12], row["status"])
     except Exception as e:
         logger.error("Failed to save task %s: %s", task_id, e)
@@ -45,9 +58,7 @@ async def save_task(task_id: str, data: dict) -> None:
 async def get_task(task_id: str) -> Optional[dict]:
     path = _path(task_id)
     try:
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                return json.load(f)
+        return _read_json(path)
     except Exception as e:
         logger.warning("Failed to read task %s: %s", task_id, e)
     return None
@@ -57,9 +68,9 @@ async def update_task(task_id: str, updates: dict) -> None:
     path = _path(task_id)
     try:
         data = {}
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                data = json.load(f)
+        existing_data = _read_json(path)
+        if existing_data:
+            data = existing_data
         for k, v in updates.items():
             if k == "phases" and isinstance(v, dict):
                 existing = data.get("phases", {})
@@ -68,8 +79,7 @@ async def update_task(task_id: str, updates: dict) -> None:
             else:
                 data[k] = v
         data["timestamp"] = _now_iso()
-        with open(path, "w") as f:
-            json.dump(data, f)
+        _write_json(path, data)
     except Exception as e:
         logger.warning("Failed to update task %s: %s", task_id, e)
 
