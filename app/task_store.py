@@ -29,7 +29,7 @@ async def save_task(task_id: str, data: dict) -> None:
             "error": data.get("error"),
             "timestamp": _now_iso(),
         }
-        supabase.table("task_store").upsert(row, on_conflict=["task_id"]).execute()
+        supabase.table("task_store").upsert(row).execute()
     except Exception as e:
         logger.warning("Failed to save task %s: %s", task_id, e)
 

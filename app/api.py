@@ -231,6 +231,18 @@ async def health_check():
     }
 
 
+@router.get("/debug/task-test")
+async def debug_task_test():
+    import uuid
+    tid = str(uuid.uuid4())
+    try:
+        await save_task(tid, {"status": "processing", "flow": "debug", "phases": {}})
+        task = await get_task(tid)
+        return {"saved": True, "task_id": tid, "retrieved": task is not None}
+    except Exception as e:
+        return {"saved": False, "error": str(e)}
+
+
 @router.post("/admin/sync-cbu")
 async def sync_cbu_rates():
     try:
