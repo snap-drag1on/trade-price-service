@@ -228,45 +228,25 @@ async def compare_offers(req: ComparisonRequest) -> ComparisonResponse:
 
 @router.get("/health")
 async def health_check():
-    try:
-        from app.supabase_client import get_service_client
-        client = get_service_client()
-        return {
-            "status": "ok",
-            "service": "Trade Price Service",
-            "timestamp": datetime.now(),
-            "supabase_connected": client is not None,
-        }
-    except Exception as e:
-        return {
-            "status": "degraded",
-            "service": "Trade Price Service",
-            "timestamp": datetime.now(),
-            "error": str(e),
-        }
-
-
-@router.get("/debug/supabase-test")
-async def supabase_debug():
-    from app.supabase_client import get_service_client
     import uuid
-    client = get_service_client()
-    if not client:
-        return {"error": "no client"}
-    tid = "debug-" + uuid.uuid4().hex[:8]
+    from app.supabase_client import get_service_client as _gsc
+    from app.task_store import save_task as _st, get_task as _gt
+    supabase = _gsc()
+    write_test = None
+    tid = "hct-" + uuid.uuid4().hex[:8]
     try:
-        row = {
-            "task_id": tid,
-            "status": "debug",
-            "flow": "",
-            "phases": {},
-            "result": None,
-            "error": None,
-        }
-        r = client.table("task_store").upsert(row).execute()
-        return {"status": "upsert_ok", "task_id": tid}
+        await _st(tid, {"status": "health_check", "flow": "test", "phases": {}})
+        t = await _gt(tid)
+        write_test = "ok" if t and t.get("status") == "health_check" else "not_found"
     except Exception as e:
-        return {"error": str(e), "task_id": tid}
+        write_test = f"err: {e}"
+    return {
+        "status": "ok",
+        "service": "Trade Price Service",
+        "timestamp": datetime.now(),
+        "supabase_connected": supabase is not None,
+        "write_test": write_test,
+    }
 
 
 @router.post("/admin/sync-cbu")
