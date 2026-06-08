@@ -1,12 +1,24 @@
 from __future__ import annotations
 
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
+
+
+# Public anon key for trade-price-service Supabase project (safe to embed)
+_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5wd29qcXFlZXJlbmJ2Z2t2bnlkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwOTcwMjksImV4cCI6MjA5NTY3MzAyOX0.2H3YscM7O7n5I9Wj9KFVDdm3I-A7FMSf9XrVxmIYBms"
 
 
 class Settings(BaseSettings):
     supabase_url: str = "https://npwojqqeerenbvgkvnyd.supabase.co"
     supabase_service_key: str = ""
-    supabase_anon_key: str = ""
+    supabase_anon_key: str = _ANON_KEY  # env override; fallback to embedded if truncated
+
+    @field_validator("supabase_anon_key")
+    @classmethod
+    def _fix_truncated_key(cls, v: str) -> str:
+        if len(v) < 100:
+            return _ANON_KEY
+        return v
     ebay_app_id: str = ""
     ebay_cert_id: str = ""
     apify_token: str = ""
