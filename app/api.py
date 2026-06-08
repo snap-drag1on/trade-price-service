@@ -228,16 +228,15 @@ async def compare_offers(req: ComparisonRequest) -> ComparisonResponse:
 
 @router.get("/health")
 async def health_check():
-    active = 0
-    try:
-        active = await count_active_tasks()
-    except Exception as e:
-        logger.warning("Health check error: %s", e)
+    from app.supabase_client import get_service_client
+    client = get_service_client()
     return {
         "status": "ok",
         "service": "Trade Price Service",
         "timestamp": datetime.now(),
-        "tasks_active": active,
+        "supabase_connected": client is not None,
+        "supabase_url": settings.supabase_url[:20] + "..." if settings.supabase_url else None,
+        "has_service_key": bool(settings.supabase_service_key),
     }
 
 
