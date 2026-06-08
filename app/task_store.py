@@ -47,7 +47,9 @@ def _now_iso() -> str:
 def _supabase_headers() -> Optional[dict]:
     try:
         from app.config import settings
-        key = settings.supabase_service_key or settings.supabase_anon_key
+        key = settings.supabase_anon_key
+        if not key:
+            key = settings.supabase_service_key
         if not key:
             return None
         return {
@@ -80,9 +82,9 @@ async def _supabase_save(task_id: str, data: dict) -> None:
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.post(f"{url}?on_conflict=task_id", headers=headers, json=payload)
             if resp.status_code not in (200, 201):
-                logger.debug("Supabase save returned %d: %s", resp.status_code, resp.text[:100])
+                logger.warning("Supabase save returned %d: %s", resp.status_code, resp.text[:200])
     except Exception as e:
-        logger.debug("Supabase task save failed: %s", e)
+        logger.warning("Supabase task save failed: %s", e)
 
 
 async def _supabase_get(task_id: str) -> Optional[dict]:
