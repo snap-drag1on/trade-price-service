@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Optional, Any
 import uuid
+import asyncio
 from datetime import datetime
 
 from app.agent.engine import run_agent
@@ -13,7 +14,7 @@ from app.currency import convert_to_usd
 from app.landed_cost import calculate_landed_cost
 from app.cache import compute_query_hash, check_cache, write_cache
 from app.supabase_client import get_service_client, get_supabase
-from app.task_store import save_task, get_task, update_task, count_active_tasks
+from app.task_store import save_task as _save_task, get_task as _get_task, update_task as _update_task, count_active_tasks as _count_tasks
 from app.log import get_logger
 
 logger = get_logger("api")
@@ -34,7 +35,10 @@ def _progress_callback(task_id: str):
     def callback(phase: str, data: dict):
         ui_label = UI_PHASE_MAP.get(phase, {}).get("label", phase)
         phase_data = {**data, "ui_label": ui_label}
-        update_task(task_id, {"phases": {phase: phase_data}})
+        try:
+            asyncio.get_event_loop().create_task(_update_task(task_id, {"phases": {phase: phase_data}}))
+        except RuntimeError:
+            pass
     return callback
 
 
