@@ -552,7 +552,8 @@ async def _run_decision_phase(client: OpenAI, loop: asyncio.AbstractEventLoop, c
     trade = context.get("trade") or {}
     profit_data = context.get("profit") or {}
     confidence = context.get("confidence") or {}
-    opportunities = context.get("opportunity", {}).get("opportunities", [])
+    opp_data = context.get("opportunity") or {}
+    opportunities = opp_data.get("opportunities", [])
 
     prompt_parts = [f"=== USER SAVOLI ===\n{context['user_message']}\n"]
 
@@ -596,8 +597,15 @@ async def _run_decision_phase(client: OpenAI, loop: asyncio.AbstractEventLoop, c
         {"role": "user", "content": "\n".join(prompt_parts)},
     ]
 
-    response = await _llm_call(client, loop, DECISION_MODEL, messages)
-    answer = response.choices[0].message.content or "Kechirasiz, javob topilmadi."
+    try:
+        response = await _llm_call(client, loop, DECISION_MODEL, messages)
+        if response is None or not response.choices:
+            answer = "Kechirasiz, AI javob bera olmadi. Iltimos qayta urinib ko'ring."
+        else:
+            answer = response.choices[0].message.content or "Kechirasiz, javob topilmadi."
+    except Exception as e:
+        logger.error("Decision LLM call failed: %s", e)
+        answer = _generate_fallback_answer(context)
 
     return {
         "answer": answer,
@@ -608,3 +616,28 @@ async def _run_decision_phase(client: OpenAI, loop: asyncio.AbstractEventLoop, c
         "confidence": confidence,
         "opportunities": opportunities,
     }
+
+
+def _generate_fallback_answer(context: dict) -> str:
+    """Generate a simple text answer when LLM is unavailable."""
+    market = context.get("market") or {}
+    profit_data = context.get("profit") or {}
+    confidence = context.get("confidence") or {}
+
+    lines = ["📊 Tahlil natijalari:\n"]
+    if profit_data.get("total_landed_usd"):
+        lines.append(f"💰 Landed cost: ${profit_data['total_landed_usd']}")
+        lines.append(f"   UZS: {profit_data['total_landed_uzs']:,} so'm")
+    if profit_data.get("margin_pct"):
+        lines.append(f"📈 Marja: {profit_data['margin_pct']}%")
+    if profit_data.get("profit_usd"):
+        lines.append(f"💵 Foyda: ${profit_data['profit_usd']}")
+    cn_price = market.get("china_price_usd")
+    uz_price = market.get("uz_price_usd")
+    if cn_price:
+        lines.append(f"\n🏷️ Xitoy narxi: ${cn_price}")
+    if uz_price:
+        lines.append(f"🏷️ O'zbekiston narxi: ${uz_price}")
+    lines.append(f"\n📊 Ishonchlilik: {confidence.get('overall', 0)*100:.0f}%")
+    lines.append("\n💡 Batafsil tahlil uchun qayta urinib ko'ring.")
+    return "\n".join(lines)
