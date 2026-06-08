@@ -32,20 +32,13 @@ UI_PHASE_MAP = {
 
 
 def _progress_callback(task_id: str):
-    _loop = asyncio.get_event_loop()
-
-    async def _do(phase: str, phase_data: dict):
+    async def callback(phase: str, data: dict):
+        ui_label = UI_PHASE_MAP.get(phase, {}).get("label", phase)
+        phase_data = {**data, "ui_label": ui_label}
         try:
             await update_task(task_id, {"phases": {phase: phase_data}})
         except Exception as e:
             logger.warning("Progress update failed for %s: %s", phase, e)
-
-    def callback(phase: str, data: dict):
-        ui_label = UI_PHASE_MAP.get(phase, {}).get("label", phase)
-        phase_data = {**data, "ui_label": ui_label}
-        if _loop.is_running():
-            asyncio.run_coroutine_threadsafe(_do(phase, phase_data), _loop)
-
     return callback
 
 

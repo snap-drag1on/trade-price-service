@@ -58,7 +58,7 @@ async def run_agent(
     client = _get_client()
     loop = asyncio.get_event_loop()
 
-    _emit(progress_callback, "router", {"status": "running", "progress": 0.0})
+    await _emit(progress_callback, "router", {"status": "running", "progress": 0.0})
 
     route = await _route_intent(client, loop, user_message)
     intent = route.get("intent", "trade_check")
@@ -68,7 +68,7 @@ async def run_agent(
 
     logger.info("Router → intent=%s origin=%s product=%s", intent, origin_country, product_target)
 
-    _emit(progress_callback, "router", {"status": "completed", "progress": 1.0, "details": route})
+    await _emit(progress_callback, "router", {"status": "completed", "progress": 1.0, "details": route})
 
     context: dict = {
         "user_message": user_message,
@@ -84,15 +84,15 @@ async def run_agent(
 
     for phase in pipeline:
         if phase == "opportunity":
-            _emit(progress_callback, "opportunity", {"status": "running", "progress": 0.0})
+            await _emit(progress_callback, "opportunity", {"status": "running", "progress": 0.0})
             context["opportunity"] = await _run_opportunity_phase(client, loop, user_message, max_tool_rounds)
-            _emit(progress_callback, "opportunity", {"status": "completed", "progress": 1.0, "details": context["opportunity"]})
+            await _emit(progress_callback, "opportunity", {"status": "completed", "progress": 1.0, "details": context["opportunity"]})
             await asyncio.sleep(API_DELAY_SECONDS)
 
         elif phase == "parallel":
-            _emit(progress_callback, "market_research", {"status": "running", "progress": 0.0})
-            _emit(progress_callback, "logistics", {"status": "running", "progress": 0.0})
-            _emit(progress_callback, "trade_engine", {"status": "running", "progress": 0.0})
+            await _emit(progress_callback, "market_research", {"status": "running", "progress": 0.0})
+            await _emit(progress_callback, "logistics", {"status": "running", "progress": 0.0})
+            await _emit(progress_callback, "trade_engine", {"status": "running", "progress": 0.0})
 
             market_data, logistics_data, trade_data = await _run_parallel_services(product_target or user_message, origin_country)
 
@@ -100,33 +100,36 @@ async def run_agent(
             context["logistics"] = logistics_data
             context["trade"] = trade_data
 
-            _emit(progress_callback, "market_research", {"status": "completed" if market_data else "error", "progress": 1.0, "details": market_data})
-            _emit(progress_callback, "logistics", {"status": "completed" if logistics_data else "error", "progress": 1.0, "details": logistics_data})
-            _emit(progress_callback, "trade_engine", {"status": "completed" if trade_data else "error", "progress": 1.0, "details": trade_data})
+            await _emit(progress_callback, "market_research", {"status": "completed" if market_data else "error", "progress": 1.0, "details": market_data})
+            await _emit(progress_callback, "logistics", {"status": "completed" if logistics_data else "error", "progress": 1.0, "details": logistics_data})
+            await _emit(progress_callback, "trade_engine", {"status": "completed" if trade_data else "error", "progress": 1.0, "details": trade_data})
 
         elif phase == "profit":
-            _emit(progress_callback, "profit", {"status": "running", "progress": 0.0})
+            await _emit(progress_callback, "profit", {"status": "running", "progress": 0.0})
             profit_data = _calculate_profit(context["market"], context["logistics"], context["trade"])
             context["profit"] = profit_data
 
             confidence = _compute_confidence(context["market"], context["logistics"], context["trade"], profit_data)
             context["confidence"] = confidence
 
-            _emit(progress_callback, "profit", {"status": "completed", "progress": 1.0, "details": profit_data})
+            await _emit(progress_callback, "profit", {"status": "completed", "progress": 1.0, "details": profit_data})
 
         elif phase == "decision":
-            _emit(progress_callback, "decision", {"status": "running", "progress": 0.0})
+            await _emit(progress_callback, "decision", {"status": "running", "progress": 0.0})
             result = await _run_decision_phase(client, loop, context)
-            _emit(progress_callback, "decision", {"status": "completed", "progress": 1.0})
+            await _emit(progress_callback, "decision", {"status": "completed", "progress": 1.0})
             return result
 
     return context
 
 
-def _emit(callback: Optional[PhaseCallback], phase: str, data: dict):
+async def _emit(callback: Optional[PhaseCallback], phase: str, data: dict):
     if callback:
         try:
-            callback(phase, data)
+            if asyncio.iscoroutinefunction(callback):
+                await callback(phase, data)
+            else:
+                callback(phase, data)
         except Exception as e:
             logger.warning("Progress callback failed: %s", e)
 
