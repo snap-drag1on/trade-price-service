@@ -246,6 +246,29 @@ async def health_check():
         }
 
 
+@router.get("/debug/supabase-test")
+async def supabase_debug():
+    from app.supabase_client import get_service_client
+    import uuid
+    client = get_service_client()
+    if not client:
+        return {"error": "no client"}
+    tid = "debug-" + uuid.uuid4().hex[:8]
+    try:
+        row = {
+            "task_id": tid,
+            "status": "debug",
+            "flow": "",
+            "phases": {},
+            "result": None,
+            "error": None,
+        }
+        r = client.table("task_store").upsert(row).execute()
+        return {"status": "upsert_ok", "task_id": tid}
+    except Exception as e:
+        return {"error": str(e), "task_id": tid}
+
+
 @router.post("/admin/sync-cbu")
 async def sync_cbu_rates():
     try:
