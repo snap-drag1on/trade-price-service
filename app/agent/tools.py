@@ -576,11 +576,14 @@ async def get_trade_costs(
     transport_mode: str = "rail",
 ) -> ToolResult:
     anon_client = get_supabase()
-    service_client = get_service_client()
-    # This RPC exposes read-only sourcing data and is intentionally available
-    # to the project's anon role. Prefer it so an outdated service key cannot
-    # stall a user task before the public client gets a chance to run.
-    clients = [client for client in (anon_client, service_client) if client is not None]
+    if anon_client is None:
+        service_client = get_service_client()
+        clients = [client for client in (service_client,) if client is not None]
+    else:
+        # This RPC exposes read-only sourcing data and is intentionally available
+        # to the project's anon role. Do not even initialize a stale service client
+        # until public source matching is exhausted.
+        clients = [anon_client]
     if not clients:
         return ToolResult(success=False, error="Supabase not available")
 
@@ -618,6 +621,40 @@ async def get_trade_costs(
             errors.append("no matching source record")
         except Exception as exc:
             errors.append(str(exc))
+
+    # A service-key lookup is only a secondary path after the public RPC was
+    # available but returned no matching route record.
+    if anon_client is not None:
+        service_client = get_service_client()
+        if service_client is not None and id(service_client) not in attempted_ids:
+            try:
+                data = service_client.rpc(
+                    "api_search_sourcing",
+                    {
+                        "cif_value": 100,
+                        "destination": destination.upper(),
+                        "hs_code": hs_code,
+                        "product_query": "",
+                        "transport_mode": transport_mode,
+                    },
+                ).execute()
+                results = data.data.get("results", []) if isinstance(data.data, dict) else []
+                for entry in results:
+                    if isinstance(entry, dict) and entry.get("origin", "").upper() == origin.upper():
+                        tc = entry.get("trade_costs", {})
+                        return ToolResult(
+                            data={
+                                "origin": origin.upper(),
+                                "destination": destination.upper(),
+                                "hs_code": hs_code,
+                                "duty_pct": float(tc.get("duty_rate_pct", 0)),
+                                "vat_pct": float(tc.get("vat_rate_pct", 0)),
+                                "freight_pct": float(tc.get("freight_rate_pct", 15)),
+                            }
+                        )
+                errors.append("no matching service source record")
+            except Exception as exc:
+                errors.append(str(exc))
 
     return ToolResult(
         success=False,
