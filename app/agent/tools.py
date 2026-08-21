@@ -575,9 +575,12 @@ async def get_trade_costs(
     hs_code: str,
     transport_mode: str = "rail",
 ) -> ToolResult:
-    service_client = get_service_client()
     anon_client = get_supabase()
-    clients = [client for client in (service_client, anon_client) if client is not None]
+    service_client = get_service_client()
+    # This RPC exposes read-only sourcing data and is intentionally available
+    # to the project's anon role. Prefer it so an outdated service key cannot
+    # stall a user task before the public client gets a chance to run.
+    clients = [client for client in (anon_client, service_client) if client is not None]
     if not clients:
         return ToolResult(success=False, error="Supabase not available")
 
