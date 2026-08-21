@@ -19,6 +19,20 @@ class Settings(BaseSettings):
         if len(v) < 100:
             return _ANON_KEY
         return v
+
+    @field_validator("supabase_url", mode="before")
+    @classmethod
+    def _normalize_rest_base_url(cls, value: str) -> str:
+        """Accept either a Supabase project URL or a PostgREST base URL.
+
+        The Python client appends ``/rest/v1`` itself. Keeping that suffix in
+        Render configuration produces a silent ``/rest/v1/rest/v1`` RPC path.
+        """
+
+        normalized = str(value).rstrip("/")
+        if normalized.endswith("/rest/v1"):
+            normalized = normalized[: -len("/rest/v1")]
+        return normalized
     ebay_app_id: str = ""
     ebay_cert_id: str = ""
     apify_token: str = ""
