@@ -575,42 +575,51 @@ async def get_trade_costs(
     hs_code: str,
     transport_mode: str = "rail",
 ) -> ToolResult:
-    supabase = get_service_client()
-    if supabase is None:
-        supabase = get_supabase()
-    if supabase is None:
+    service_client = get_service_client()
+    anon_client = get_supabase()
+    clients = [client for client in (service_client, anon_client) if client is not None]
+    if not clients:
         return ToolResult(success=False, error="Supabase not available")
-    try:
-        data = supabase.rpc(
-            "api_search_sourcing",
-            {
-                "cif_value": 100,
-                "destination": destination.upper(),
-                "hs_code": hs_code,
-                "product_query": "",
-                "transport_mode": transport_mode,
-            },
-        ).execute()
-        results = data.data.get("results", []) if isinstance(data.data, dict) else []
-        for entry in results:
-            if isinstance(entry, dict) and entry.get("origin", "").upper() == origin.upper():
-                tc = entry.get("trade_costs", {})
-                return ToolResult(
-                    data={
-                        "origin": origin.upper(),
-                        "destination": destination.upper(),
-                        "hs_code": hs_code,
-                        "duty_pct": float(tc.get("duty_rate_pct", 0)),
-                        "vat_pct": float(tc.get("vat_rate_pct", 0)),
-                        "freight_pct": float(tc.get("freight_rate_pct", 15)),
-                    }
-                )
-        return ToolResult(
-            success=False,
-            error=f"No trade costs found for {origin} → {destination} HS {hs_code}",
-        )
-    except Exception as exc:
-        return ToolResult(success=False, error=str(exc))
+
+    errors: list[str] = []
+    attempted_ids: set[int] = set()
+    for supabase in clients:
+        if id(supabase) in attempted_ids:
+            continue
+        attempted_ids.add(id(supabase))
+        try:
+            data = supabase.rpc(
+                "api_search_sourcing",
+                {
+                    "cif_value": 100,
+                    "destination": destination.upper(),
+                    "hs_code": hs_code,
+                    "product_query": "",
+                    "transport_mode": transport_mode,
+                },
+            ).execute()
+            results = data.data.get("results", []) if isinstance(data.data, dict) else []
+            for entry in results:
+                if isinstance(entry, dict) and entry.get("origin", "").upper() == origin.upper():
+                    tc = entry.get("trade_costs", {})
+                    return ToolResult(
+                        data={
+                            "origin": origin.upper(),
+                            "destination": destination.upper(),
+                            "hs_code": hs_code,
+                            "duty_pct": float(tc.get("duty_rate_pct", 0)),
+                            "vat_pct": float(tc.get("vat_rate_pct", 0)),
+                            "freight_pct": float(tc.get("freight_rate_pct", 15)),
+                        }
+                    )
+            errors.append("no matching source record")
+        except Exception as exc:
+            errors.append(str(exc))
+
+    return ToolResult(
+        success=False,
+        error=f"No trade costs found for {origin} → {destination} HS {hs_code}: {'; '.join(errors)}",
+    )
 
 
 async def calculate_landed(
