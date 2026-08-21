@@ -57,10 +57,17 @@ async def run_agent(
 ) -> dict:
     client = _get_client()
     loop = asyncio.get_event_loop()
+    analysis_mode = "llm"
 
     await _emit(progress_callback, "router", {"status": "running", "progress": 0.0})
 
-    route = await _route_intent(client, loop, user_message)
+    try:
+        route = await _route_intent(client, loop, user_message)
+    except Exception as exc:
+        analysis_mode = "deterministic"
+        logger.warning("Router LLM unavailable; continuing with data-backed fallback: %s", exc)
+        route = _deterministic_route(user_message)
+
     intent = route.get("intent", "trade_check")
     pipeline = route.get("pipeline", ["parallel", "profit", "decision"])
     product_target = route.get("product", "")
@@ -74,6 +81,7 @@ async def run_agent(
         "user_message": user_message,
         "intent": intent,
         "product_target": product_target,
+        "origin_country": origin_country,
         "opportunity": None,
         "market": None,
         "logistics": None,
@@ -116,7 +124,15 @@ async def run_agent(
 
         elif phase == "decision":
             await _emit(progress_callback, "decision", {"status": "running", "progress": 0.0})
-            result = await _run_decision_phase(client, loop, context)
+            if analysis_mode == "deterministic":
+                result = _build_deterministic_decision(context)
+            else:
+                result = await _run_decision_phase(client, loop, context)
+
+            result["router"] = route
+            result["product_target"] = product_target
+            result["origin_country"] = origin_country
+            result["analysis_mode"] = result.get("analysis_mode", analysis_mode)
             await _emit(progress_callback, "decision", {"status": "completed", "progress": 1.0})
             return result
 
@@ -132,6 +148,35 @@ async def _emit(callback: Optional[PhaseCallback], phase: str, data: dict):
                 callback(phase, data)
         except Exception as e:
             logger.warning("Progress callback failed: %s", e)
+
+
+def _deterministic_route(user_message: str) -> dict:
+    """Produce a conservative, data-only route when an optional LLM is unavailable."""
+    normalized = user_message.lower()
+    country_signals = {
+        "TR": ("turkey", "turkish", "türkiye", "turkiya", "turkiyadan"),
+        "CN": ("china", "chinese", "xitoy", "xitoydan"),
+        "RU": ("russia", "russian", "rossiya", "rossiyadan"),
+        "KZ": ("kazakhstan", "kazakh", "qozog'iston", "qozogiston"),
+        "AE": ("uae", "dubai", "emirates", "baa"),
+        "DE": ("germany", "german", "germaniya"),
+        "US": ("usa", "united states", "america", "aqsh"),
+        "JP": ("japan", "japanese", "yaponiya"),
+        "KR": ("south korea", "korea", "korean", "koreya"),
+    }
+    origin_country = next(
+        (code for code, signals in country_signals.items() if any(signal in normalized for signal in signals)),
+        "CN",
+    )
+    product = re.split(r"\b(?:from|to|import|check|with|for)\b", user_message, maxsplit=1, flags=re.IGNORECASE)[0]
+    product = product.strip(" .,:;-") or user_message.strip()
+    return {
+        "intent": "trade_check",
+        "pipeline": ["parallel", "profit", "decision"],
+        "product": product,
+        "origin_country": origin_country,
+        "mode": "deterministic",
+    }
 
 
 # ====================================================================
@@ -690,7 +735,7 @@ async def _run_decision_phase(client: OpenAI, loop: asyncio.AbstractEventLoop, c
             answer = response.choices[0].message.content or "Kechirasiz, javob topilmadi."
     except Exception as e:
         logger.error("Decision LLM call failed: %s", e)
-        answer = _generate_fallback_answer(context)
+        return _build_deterministic_decision(context)
 
     return {
         "answer": answer,
@@ -700,6 +745,7 @@ async def _run_decision_phase(client: OpenAI, loop: asyncio.AbstractEventLoop, c
         "profit": profit_data,
         "confidence": confidence,
         "opportunities": opportunities,
+        "analysis_mode": "llm",
     }
 
 
@@ -727,3 +773,80 @@ def _generate_fallback_answer(context: dict) -> str:
     lines.append(f"\n📊 Ishonchlilik: {confidence.get('overall', 0)*100:.0f}%")
     lines.append("\n💡 Batafsil tahlil uchun qayta urinib ko'ring.")
     return "\n".join(lines)
+
+
+def _build_deterministic_decision(context: dict) -> dict:
+    """Build a transparent Decision Brief from returned data without generating claims."""
+    product = context.get("product_target") or context.get("user_message", "the product")
+    origin = context.get("origin_country", "CN")
+    market = context.get("market") or {}
+    logistics = context.get("logistics") or {}
+    trade = context.get("trade") or {}
+    profit = context.get("profit") or {}
+    confidence = context.get("confidence") or {}
+    sources: list[dict] = []
+    known_inputs: list[str] = []
+
+    if market.get("origin_price_usd") is not None:
+        known_inputs.append(f"Origin listing signal: ${market['origin_price_usd']}")
+        if market.get("origin_source"):
+            sources.append({
+                "name": str(market["origin_source"]),
+                "description": "Origin-market listing signal returned by the connected task.",
+                "used_for": "Origin price context",
+            })
+    if market.get("uz_price_usd") is not None:
+        known_inputs.append(f"Uzbekistan listing signal: ${market['uz_price_usd']}")
+        if market.get("uz_source"):
+            sources.append({
+                "name": str(market["uz_source"]),
+                "description": "Uzbekistan-market listing signal returned by the connected task.",
+                "used_for": "Destination price context",
+            })
+    if trade.get("hs_code"):
+        known_inputs.append(f"Candidate HS classification: {trade['hs_code']}")
+    if trade.get("duty_pct") is not None:
+        known_inputs.append(f"Returned import duty input: {trade['duty_pct']}%")
+    if trade.get("vat_pct") is not None:
+        known_inputs.append(f"Returned VAT input: {trade['vat_pct']}%")
+    if logistics.get("cost_per_kg_usd") is not None:
+        known_inputs.append(f"Returned {logistics.get('transport_mode', 'route')} freight input: ${logistics['cost_per_kg_usd']}/kg")
+    if logistics.get("transit_days") is not None:
+        known_inputs.append(f"Returned transit input: {logistics['transit_days']} days")
+    if profit.get("total_landed_usd"):
+        known_inputs.append(f"Indicative landed-cost calculation: ${profit['total_landed_usd']} per unit")
+
+    evidence_label = "limited"
+    if confidence.get("overall", 0) >= 0.8:
+        evidence_label = "strong"
+    elif confidence.get("overall", 0) >= 0.55:
+        evidence_label = "moderate"
+
+    answer_lines = [
+        f"Data-backed trade brief for {product} from {origin}.",
+        "",
+        "The optional narrative service was unavailable, so this brief uses only connected database and retrieval inputs. Returned values and open commercial questions are kept separate below.",
+        "",
+        "Known inputs:",
+        *([f"- {item}" for item in known_inputs] if known_inputs else ["- No verified commercial inputs were returned for this brief."]),
+        "",
+        "Commercial inputs still needed:",
+        "- Supplier quotation, Incoterm, unit weight and minimum order quantity.",
+        "- Product composition and use details to confirm the candidate HS classification.",
+        "- Official customs confirmation of duty, VAT, permits and any origin preference.",
+        "",
+        f"Evidence quality: {evidence_label}. Next step: confirm the candidate HS code and shipment assumptions before placing an order.",
+    ]
+    answer = "\n".join(answer_lines)
+    return {
+        "answer": answer,
+        "decision": {"recommendation": answer, "mode": "data_backed"},
+        "market": market,
+        "logistics": logistics,
+        "trade": trade,
+        "profit": profit,
+        "confidence": confidence,
+        "opportunities": [],
+        "sources": sources,
+        "analysis_mode": "deterministic",
+    }
