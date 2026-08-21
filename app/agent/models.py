@@ -6,9 +6,12 @@ from datetime import datetime
 class QueryRequest(BaseModel):
     product: str = Field(..., min_length=1, description="Mahsulot nomi")
     language: str = Field("uz", pattern="^(uz|ru|en)$")
-    destination: str = Field("UZ", min_length=2, max_length=2)
+    destination: Optional[str] = Field(None, min_length=2, max_length=2)
     max_results: int = Field(5, ge=1, le=20)
     use_cache: bool = Field(True)
+    session_id: Optional[str] = Field(None, min_length=1, max_length=128)
+    intake_sequence: int = Field(1, ge=1)
+    has_image: bool = False
 
 
 class QueryResponse(BaseModel):
@@ -18,6 +21,7 @@ class QueryResponse(BaseModel):
     flow: Optional[str] = None
     phases: Optional[dict] = None
     result: Optional[dict] = None
+    clarification: Optional[dict] = None
     error: Optional[str] = None
     timestamp: datetime
 

@@ -5,6 +5,8 @@ import asyncio
 from datetime import datetime
 
 from app.agent.engine import run_agent
+from app.agent.contract_v1_1 import LayerEvent, create_clarification, normalize_legacy_message
+from app.agent.contract_runner_v1_1 import run_contract_v1_1
 from app.agent.models import (
     QueryRequest, QueryResponse,
     PriceCheckRequest, PriceCheckResponse,
@@ -42,32 +44,79 @@ def _progress_callback(task_id: str):
     return callback
 
 
+def _contract_event_callback(task_id: str):
+    """Persist safe, idempotent Contract v1.1 events inside the existing JSON task store."""
+    async def callback(event: LayerEvent):
+        event_payload = event.model_dump(mode="json")
+        phases: dict[str, dict] = {f"event_{event.sequence:06d}": event_payload}
+        if event.layer_id:
+            phases[f"layer_{event.layer_id}"] = {
+                "status": "completed" if event.state == "complete" else event.state,
+                "progress": 1.0 if event.state == "complete" else 0.0,
+                "ui_label": event.layer_id,
+                "label": event.message,
+                "latest_event_id": event.event_id,
+                "evidence_ids": list(event.evidence_ids),
+                "detail": event.detail,
+            }
+        try:
+            await update_task(task_id, {"phases": phases})
+        except Exception as exc:
+            logger.warning("Contract event update failed for %s: %s", task_id, exc)
+    return callback
+
+
 @router.post("/query", response_model=QueryResponse)
 async def create_query(
     req: QueryRequest,
     background_tasks: BackgroundTasks,
 ) -> QueryResponse:
     task_id = str(uuid.uuid4())
+    session_id = req.session_id or task_id
+    intake = normalize_legacy_message(req.product, session_id, req.intake_sequence)
+    clarification = create_clarification(intake)
+
+    if clarification is not None:
+        clarification_payload = clarification.model_dump(mode="json")
+        await save_task(task_id, {
+            "status": "needs_input",
+            "flow": intake.intent.value,
+            "phases": {},
+            "result": {
+                "kind": "clarification",
+                "contract_version": "1.1",
+                "intent": intake.intent.value,
+                "intake_id": intake.intake_id,
+                "clarification": clarification_payload,
+            },
+        })
+        return QueryResponse(
+            success=True,
+            task_id=task_id,
+            status="needs_input",
+            flow=intake.intent.value,
+            clarification=clarification_payload,
+            timestamp=datetime.now(),
+        )
 
     await save_task(task_id, {
         "status": "processing",
-        "flow": "",
+        "flow": intake.intent.value,
         "phases": {},
     })
 
     background_tasks.add_task(
-        _process_query_background,
+        _process_contract_query_background,
         task_id=task_id,
-        product=req.product,
-        language=req.language,
-        destination=req.destination,
-        use_cache=req.use_cache,
+        intake=intake,
+        has_image=req.has_image,
     )
 
     return QueryResponse(
         success=True,
         task_id=task_id,
         status="processing",
+        flow=intake.intent.value,
         timestamp=datetime.now(),
     )
 
@@ -85,49 +134,24 @@ async def get_query_status(task_id: str) -> QueryResponse:
         flow=task_data.get("flow"),
         phases=task_data.get("phases"),
         result=task_data.get("result"),
+        clarification=(task_data.get("result") or {}).get("clarification") if task_data.get("status") == "needs_input" else None,
         error=task_data.get("error"),
         timestamp=datetime.now(),
     )
 
 
-async def _process_query_background(
-    task_id: str,
-    product: str,
-    language: str,
-    destination: str,
-    use_cache: bool,
-):
-    callback = None
+async def _process_contract_query_background(task_id: str, intake, has_image: bool):
     try:
-        if use_cache:
-            query_hash = compute_query_hash(product, None, destination)
-            cached = await check_cache(query_hash)
-            if cached:
-                await update_task(task_id, {
-                    "status": "completed",
-                    "flow": "trade_check",
-                    "result": {"source": "cache", "data": cached},
-                })
-                logger.info("Cache HIT for %s", task_id)
-                return
-
-        callback = _progress_callback(task_id)
-        result = await asyncio.wait_for(run_agent(product, max_tool_rounds=10, progress_callback=callback), timeout=90)
-
-        if isinstance(result, dict):
-            await update_task(task_id, {
-                "status": "completed",
-                "flow": result.get("intent") or result.get("flow", "trade_check"),
-                "result": result,
-            })
+        result = await asyncio.wait_for(
+            run_contract_v1_1(intake, task_id, event_callback=_contract_event_callback(task_id), has_image=has_image),
+            timeout=90,
+        )
+        status = result.get("status", "completed")
+        if status == "needs_input":
+            await update_task(task_id, {"status": "needs_input", "flow": intake.intent.value, "result": result})
         else:
-            await update_task(task_id, {
-                "status": "completed",
-                "flow": "trade_check",
-                "result": {"answer": str(result)},
-            })
-
-        logger.info("Query completed: %s", task_id)
+            await update_task(task_id, {"status": "completed", "flow": intake.intent.value, "result": result})
+        logger.info("Contract v1.1 query completed: %s", task_id)
 
     except Exception as e:
         logger.error("Query failed %s: %s", task_id, e)
