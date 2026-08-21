@@ -30,7 +30,7 @@ from app.agent.tools import discover_opportunities
 from app.landed_cost import calculate_landed_cost
 
 
-EventCallback = Callable[[LayerEvent], Awaitable[None] | None]
+EventCallback = Callable[[LayerEvent], Optional[Awaitable[None]]]
 CONFIDENCE_RULESET_VERSION = "evidence-rules-1"
 
 
