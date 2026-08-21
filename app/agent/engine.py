@@ -24,8 +24,8 @@ CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1"
 GITHUB_BASE_URL = "https://models.inference.ai.azure.com"
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
-ROUTER_MODEL = "zai-glm-4.7"
-RESEARCH_MODEL = "zai-glm-4.7"
+ROUTER_MODEL = "gpt-oss-120b"
+RESEARCH_MODEL = "gpt-oss-120b"
 DECISION_MODEL = "gpt-oss-120b"
 
 API_DELAY_SECONDS = 3
