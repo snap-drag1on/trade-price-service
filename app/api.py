@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime
 
 from app.agent.engine import run_agent
-from app.agent.contract_v1_1 import LayerEvent, create_clarification, normalize_legacy_message
+from app.agent.contract_v1_1 import LayerEvent, TradeIntake, create_clarification, normalize_legacy_message, resume_intake
 from app.agent.contract_runner_v1_1 import run_contract_v1_1
 from app.agent.models import (
     QueryRequest, QueryResponse,
@@ -74,6 +74,16 @@ async def create_query(
     task_id = str(uuid.uuid4())
     session_id = req.session_id or task_id
     intake = normalize_legacy_message(req.product, session_id, req.intake_sequence)
+    if req.previous_task_id:
+        previous_task = await get_task(req.previous_task_id)
+        previous_snapshot = ((previous_task or {}).get("result") or {}).get("intake_snapshot")
+        if not previous_snapshot:
+            raise HTTPException(status_code=409, detail="The previous intake snapshot is unavailable. Please restart the trade check.")
+        try:
+            previous_intake = TradeIntake.model_validate(previous_snapshot)
+            intake = resume_intake(previous_intake, req.product, session_id, req.intake_sequence)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=f"The clarification could not be resumed: {exc}") from exc
     clarification = create_clarification(intake)
 
     if clarification is not None:
@@ -88,6 +98,7 @@ async def create_query(
                 "intent": intake.intent.value,
                 "intake_id": intake.intake_id,
                 "clarification": clarification_payload,
+                "intake_snapshot": intake.model_dump(mode="json"),
             },
         })
         return QueryResponse(
@@ -103,6 +114,7 @@ async def create_query(
         "status": "processing",
         "flow": intake.intent.value,
         "phases": {},
+        "result": {"intake_snapshot": intake.model_dump(mode="json")},
     })
 
     background_tasks.add_task(
@@ -146,6 +158,7 @@ async def _process_contract_query_background(task_id: str, intake, has_image: bo
             run_contract_v1_1(intake, task_id, event_callback=_contract_event_callback(task_id), has_image=has_image),
             timeout=90,
         )
+        result["intake_snapshot"] = intake.model_dump(mode="json")
         status = result.get("status", "completed")
         if status == "needs_input":
             await update_task(task_id, {"status": "needs_input", "flow": intake.intent.value, "result": result})

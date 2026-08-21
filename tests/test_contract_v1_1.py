@@ -13,6 +13,7 @@ from app.agent.contract_v1_1 import (
     create_execution_plan,
     is_executable,
     normalize_legacy_message,
+    resume_intake,
 )
 from app.agent.contract_runner_v1_1 import run_contract_v1_1
 from app.agent.models import QueryRequest
@@ -80,6 +81,29 @@ class ContractV11Tests(unittest.TestCase):
 
         self.assertEqual([layer.layer_id for layer in plan.layers], ["image_analysis", "research", "verify", "brief"])
         self.assertEqual(len(plan.layers), 4)
+
+    def test_clarification_resume_preserves_confirmed_route_fields_and_uses_new_answer_provenance(self):
+        initial = normalize_legacy_message(
+            "Cotton t-shirts from Turkey",
+            "e59b6ae3-2dc2-45f5-bb73-6230d1df488d",
+        )
+
+        resumed = resume_intake(
+            initial,
+            "O‘zbekistonga olib kelib sotaman, budjetim $2,000.",
+            "e59b6ae3-2dc2-45f5-bb73-6230d1df488d",
+            2,
+        )
+
+        self.assertEqual(resumed.sequence, 2)
+        self.assertEqual(resumed.intent, TradeIntent.ROUTE_CHECK)
+        self.assertEqual(resumed.fields["product"].value, "Cotton t-shirts")
+        self.assertEqual(resumed.fields["product"].source, "resume")
+        self.assertEqual(resumed.fields["origin"].value, "TR")
+        self.assertEqual(resumed.fields["origin"].source, "resume")
+        self.assertEqual(resumed.fields["destination"].value, "UZ")
+        self.assertEqual(resumed.fields["destination"].source, "user")
+        self.assertTrue(is_executable(resumed))
 
     def test_complete_brief_requires_evidence_and_unknowns_have_a_reason(self):
         brief = DecisionBrief(

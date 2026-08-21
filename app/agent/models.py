@@ -10,6 +10,7 @@ class QueryRequest(BaseModel):
     max_results: int = Field(5, ge=1, le=20)
     use_cache: bool = Field(True)
     session_id: Optional[str] = Field(None, min_length=1, max_length=128)
+    previous_task_id: Optional[str] = Field(None, min_length=1, max_length=128)
     intake_sequence: int = Field(1, ge=1)
     has_image: bool = False
 

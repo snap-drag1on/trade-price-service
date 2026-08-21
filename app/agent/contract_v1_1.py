@@ -268,7 +268,7 @@ QUESTION_COPY: dict[str, tuple[str, str]] = {
 }
 
 COUNTRY_ALIASES: dict[str, tuple[str, ...]] = {
-    "UZ": ("uzbekistan", "uzbekiston", "o'zbekiston", "ozbekiston"),
+    "UZ": ("uzbekistan", "uzbekiston", "o'zbekiston", "o‘zbekistan", "o‘zbekiston", "ozbekiston"),
     "TR": ("turkey", "turkiye", "türkiye", "turkiya"),
     "CN": ("china", "xitoy"),
     "RU": ("russia", "rossiya"),
@@ -363,7 +363,7 @@ def normalize_legacy_message(message: str, session_id: str, sequence: int = 1) -
         product = product[7:].strip()
     has_product = bool(product) and product.lower() not in {"what", "what should i", "nima", "nima olib kelsam"}
 
-    budget_match = re.search(r"(?:budget|under|up to|below|byudjet)[^\d$]*(\$?\s*[\d][\d,\s.]*)", lower)
+    budget_match = re.search(r"(?:budget|under|up to|below|byudjet|budjet)[^\d$]*(\$?\s*[\d][\d,\s.]*)", lower)
     quantity_match = re.search(r"(?:quantity|qty|units?|pieces?|dona)[^\d]*(\d[\d,\s.]*)", lower)
     money_matches = re.findall(r"\$\s*(\d[\d,\s.]*)", normalized)
     valuation_basis = next((basis for basis in ("EXW", "FOB", "CIF") if basis.lower() in lower), None)
@@ -383,6 +383,47 @@ def normalize_legacy_message(message: str, session_id: str, sequence: int = 1) -
         sequence=sequence,
         raw_user_message=normalized,
         intent=intent,
+        fields=fields,
+    )
+
+
+def resume_intake(previous: TradeIntake, answer: str, session_id: str, sequence: int) -> TradeIntake:
+    """Create a new immutable snapshot from a clarification answer and prior confirmed fields.
+
+    The current answer may only contain one field. Previously confirmed user values
+    are copied as ``resume`` provenance rather than silently re-parsed or guessed.
+    """
+
+    if session_id != previous.session_id:
+        raise ValueError("resume session does not match the previous intake")
+    if sequence <= previous.sequence:
+        raise ValueError("resume sequence must advance the immutable intake")
+
+    parsed_answer = normalize_legacy_message(answer, session_id, sequence)
+    fields: dict[str, TradeIntakeField] = {}
+    for field_name in set(previous.fields) | set(parsed_answer.fields):
+        answer_field = parsed_answer.fields.get(field_name)
+        previous_field = previous.fields.get(field_name)
+        if previous_field and previous_field.state == FieldState.CONFIRMED:
+            fields[field_name] = TradeIntakeField(
+                value=previous_field.value,
+                state=FieldState.CONFIRMED,
+                source="resume",
+            )
+        elif answer_field and answer_field.state == FieldState.CONFIRMED:
+            fields[field_name] = answer_field
+        else:
+            fields[field_name] = answer_field or previous_field or TradeIntakeField(
+                value=None,
+                state=FieldState.UNKNOWN,
+                source="parser",
+            )
+
+    return TradeIntake(
+        session_id=session_id,
+        sequence=sequence,
+        raw_user_message=answer,
+        intent=previous.intent,
         fields=fields,
     )
 
