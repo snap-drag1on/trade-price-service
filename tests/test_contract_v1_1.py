@@ -16,6 +16,7 @@ from app.agent.contract_v1_1 import (
     resume_intake,
 )
 from app.agent.contract_runner_v1_1 import run_contract_v1_1
+from app.agent.engine import _find_hs_code
 from app.agent.models import QueryRequest
 
 
@@ -176,6 +177,15 @@ class ContractV11Tests(unittest.TestCase):
         source_event = next(event for event in events if event.event_type == "source.discovered")
         self.assertEqual(source_event.detail["source_ref"], "supabase:get_trade_costs")
         self.assertNotIn("margin", str(result).lower())
+
+    def test_cotton_tshirt_deterministic_hs_fallback_unblocks_connected_customs_lookup(self):
+        async def exercise():
+            with patch("app.agent.engine.get_service_client", return_value=None), patch(
+                "app.agent.engine.get_supabase", return_value=None
+            ):
+                return await _find_hs_code("Cotton t-shirts")
+
+        self.assertEqual(asyncio.run(exercise()), "610910")
 
 
 if __name__ == "__main__":

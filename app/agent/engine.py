@@ -569,6 +569,7 @@ async def _find_hs_code(product: str) -> Optional[str]:
         "cable": "854442", "charger": "850440",
         "speaker": "851822", "headphone": "851830",
         "camera": "852589", "dash camera": "852589",
+        "t-shirt": "610910", "t shirt": "610910", "tshirt": "610910", "futbolka": "610910",
         "blanket": "630110", "towel": "630260",
         "toy": "950300", "drone": "852581",
         "tobacco": "240399", "sigareta": "240220", "cigarette": "240220", "tamaki": "240399", "stick": "240399", "heated": "240399",
